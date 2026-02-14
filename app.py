@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 import webbrowser
@@ -95,7 +94,7 @@ class PathologyTestsForm(tk.Tk):
                             font=("Arial", 12), bg="#f0e1c6", justify=tk.CENTER)
         info_label.pack(pady=(0,30))
 
-        launch_btn = tk.Button(self, text="🚀 Launch Web Application", 
+        launch_btn = tk.Button(self, text="ðŸš€ Launch Web Application", 
                             fg="white", bg="#28a745", font=("Arial", 16, "bold"), 
                             command=self.launch_web_app, height=3, width=25)
         launch_btn.pack(pady=(0, 20))
