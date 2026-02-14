@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import webbrowser
@@ -51,7 +51,7 @@ class PathologyTestsForm(tk.Tk):
 
         # WhatsApp API Configuration (placeholders)
         self.whatsapp_api_url = "https://graph.facebook.com/v17.0/"
-        self.whatsapp_phone_number_id = "YOUR_PHONE_NUMBER_ID"
+        self.whatsapp_phone_number_id = "7987089890"
         self.whatsapp_access_token = "YOUR_ACCESS_TOKEN"
 
         # Store current report data
@@ -634,7 +634,7 @@ Generated on: {datetime.now().strftime('%d-%m-%Y %I:%M %p')}
 if __name__ == "__main__":
     gui = PathologyTestsForm()
     gui.mainloop()
-=======
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import webbrowser
@@ -1270,4 +1270,4 @@ Generated on: {datetime.now().strftime('%d-%m-%Y %I:%M %p')}
 if __name__ == "__main__":
     gui = PathologyTestsForm()
     gui.mainloop()
->>>>>>> 46fc072b7cd09542b084dc8a3196ad3df90e4e55
+
