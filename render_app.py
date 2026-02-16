@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file, send_from_directory
+﻿from flask import Flask, request, jsonify, send_file, send_from_directory
 import os
 import sqlite3
 
@@ -31,33 +31,6 @@ def home():
     if os.path.exists(html_path):
         return send_file(html_path)
     return "Server running"
-
-# ---------- API ----------
-@app.post("/api/add-patient")
-def add_patient():
-    data = request.json
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO patients (name, test, result) VALUES (?, ?, ?)",
-        (data["name"], data["test"], data["result"])
-    )
-    conn.commit()
-    conn.close()
-    return jsonify({"status": "success"})
-
-@app.get("/api/patients")
-def get_patients():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT * FROM patients")
-    rows = c.fetchall()
-    conn.close()
-
-    return jsonify(rows)
-
-if __name__ == "__main__":
-    app.run()
 
 # ---------- API ----------
 @app.post("/api/add-patient")
