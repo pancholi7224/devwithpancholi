@@ -1,5 +1,12 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+try:
+    import tkinter as tk
+    from tkinter import ttk, messagebox
+    TK_AVAILABLE = True
+except Exception:
+    tk = None
+    ttk = None
+    messagebox = None
+    TK_AVAILABLE = False
 import webbrowser
 import os
 from datetime import datetime
@@ -29,16 +36,22 @@ except ImportError:
 try:
     from weasyprint import HTML
     WEASYPRINT_AVAILABLE = True
-except ImportError:
+except Exception as e:
     WEASYPRINT_AVAILABLE = False
-    print("weasyprint not available. Using HTML reports.")
+    print(f"weasyprint not available ({e}). Using HTML reports.")
 
-class PathologyTestsForm(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("UJJIVAN Hospital Pathology System")
-        self.geometry("600x450")
-        self.configure(bg="#f0e1c6")
+TkBase = tk.Tk if TK_AVAILABLE else object
+
+class PathologyTestsForm(TkBase):
+    def __init__(self, enable_gui=True, auto_start_server=True):
+        self.enable_gui = enable_gui and TK_AVAILABLE
+        self.auto_start_server = auto_start_server
+
+        if self.enable_gui:
+            super().__init__()
+            self.title("UJJIVAN Hospital Pathology System")
+            self.geometry("600x450")
+            self.configure(bg="#f0e1c6")
         
         # Create necessary directories
         os.makedirs('reports/completed_reports', exist_ok=True)
@@ -171,14 +184,16 @@ class PathologyTestsForm(tk.Tk):
                 "WIDAL TEST - S. Paratyphi, 'BH'", "Dengue NS1", "Typhi Dot"
             ]
         }
-        
-        # GUI Setup
-        self.setup_gui()
-        
         # Start Flask server
         self.flask_app = Flask(__name__)
         self.setup_flask_routes()
-        self.start_flask_server()
+
+        if self.enable_gui:
+            # GUI Setup
+            self.setup_gui()
+
+        if self.auto_start_server:
+            self.start_flask_server()
         
     def setup_gui(self):
         """Setup the main GUI window"""
@@ -378,7 +393,8 @@ class PathologyTestsForm(tk.Tk):
                 
                 # Try to generate PDF if possible
                 pdf_generated = False
-                pdf_url = f"http://localhost:5000/view-report/{html_filename}"
+                base_url = request.host_url.rstrip("/")
+                pdf_url = f"{base_url}/view-report/{html_filename}"
                 
                 if PDFKIT_AVAILABLE or WEASYPRINT_AVAILABLE:
                     pdf_filename = f"Pathology_Report_{patient_name_clean}_{timestamp}.pdf"
@@ -386,7 +402,7 @@ class PathologyTestsForm(tk.Tk):
                     
                     if self.generate_pdf(html_content, pdf_filepath):
                         pdf_generated = True
-                        pdf_url = f"http://localhost:5000/view-report/{pdf_filename}"
+                        pdf_url = f"{base_url}/view-report/{pdf_filename}"
                         print(f"✅ PDF saved to: {pdf_filepath}")
                 
                 # Send WhatsApp message with report link
@@ -1060,7 +1076,7 @@ class PathologyTestsForm(tk.Tk):
                     btn.innerHTML = '⏳ Submitting...';
                     btn.disabled = true;
                     
-                    fetch('http://localhost:5000/submit-report', {{
+                    fetch('/submit-report', {{
                         method: 'POST',
                         headers: {{
                             'Content-Type': 'application/json',
@@ -1602,7 +1618,8 @@ Thank you for choosing UJJIVAN Hospital.
                 self.flask_app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False, threaded=True)
             except Exception as e:
                 print(f"❌ Flask server error: {e}")
-                self.status_label.config(text=f"Server error: {e}")
+                if self.enable_gui and hasattr(self, "status_label"):
+                    self.status_label.config(text=f"Server error: {e}")
         
         self.flask_thread = threading.Thread(target=run_flask, daemon=True)
         self.flask_thread.start()
@@ -1622,8 +1639,8 @@ Thank you for choosing UJJIVAN Hospital.
             f"📁 Reports are saved in:\n{os.path.abspath('reports/completed_reports')}")
 
 if __name__ == "__main__":
-    app = PathologyTestsForm()
-    
+    app = PathologyTestsForm(enable_gui=True, auto_start_server=True)
+
     # Handle window close
     def on_closing():
         try:
@@ -1631,6 +1648,9 @@ if __name__ == "__main__":
         except:
             pass
         app.destroy()
-    
+
     app.protocol("WM_DELETE_WINDOW", on_closing)
     app.mainloop()
+else:
+    # Render / Gunicorn entrypoint: run Flask routes without desktop GUI.
+    app = PathologyTestsForm(enable_gui=False, auto_start_server=False).flask_app
