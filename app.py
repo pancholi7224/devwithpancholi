@@ -53,8 +53,8 @@ class PathologyTestsForm(tk.Tk):
         
         # WhatsApp API Configuration (for future use)
         self.whatsapp_api_url = "https://graph.facebook.com/v17.0/"
-        self.whatsapp_phone_number_id = ""  # Add your Phone Number ID here
-        self.whatsapp_access_token = ""  # Add your Access Token here
+        self.whatsapp_phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+        self.whatsapp_access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
         
         # Test normal ranges dictionary
         self.normal_ranges = {
@@ -1440,52 +1440,87 @@ class PathologyTestsForm(tk.Tk):
             return None, f"Mobile validation error: {str(e)}"
 
     def send_whatsapp_message(self, mobile_number, patient_data, report_url):
-        """Send WhatsApp message with report link"""
+        """Send WhatsApp message with report link."""
         try:
-            # Validate mobile number
             formatted_mobile, mobile_error = self.validate_mobile_number(mobile_number)
             if mobile_error:
                 return False, mobile_error
             
-            print(f"📱 Preparing WhatsApp for: {formatted_mobile}")
-            
-            # Create message
+            print(f"Preparing WhatsApp for: {formatted_mobile}")
             message = self.create_whatsapp_message(patient_data, report_url)
+
+            # Method 1: Cloud API (works in server mode).
+            api_success, api_message = self.send_whatsapp_via_cloud_api(formatted_mobile, message)
+            if api_success:
+                return True, api_message
             
-            # Method 1: Try WhatsApp Web (opens in browser)
+            # Method 2: WhatsApp Web fallback (local desktop usage).
             try:
                 encoded_message = urllib.parse.quote(message)
                 whatsapp_url = f"https://web.whatsapp.com/send?phone={formatted_mobile}&text={encoded_message}"
-                
-                # Open in default browser
-                webbrowser.open(whatsapp_url)
-                
-                print("✅ WhatsApp Web opened in browser")
-                return True, "WhatsApp Web opened - please send manually"
+                opened = webbrowser.open(whatsapp_url)
+                if opened:
+                    return True, "WhatsApp Web opened - please send manually"
                 
             except Exception as e:
-                print(f"WhatsApp Web failed: {e}")
+                print(f"WhatsApp Web fallback failed: {e}")
             
-            # Method 2: Try WhatsApp Desktop app
+            # Method 3: Try WhatsApp Desktop app
             try:
                 if platform.system() == 'Windows':
-                    # Try to open WhatsApp Desktop
                     encoded_message = urllib.parse.quote(message)
                     whatsapp_url = f"whatsapp://send?phone={formatted_mobile}&text={encoded_message}"
-                    webbrowser.open(whatsapp_url)
-                    return True, "WhatsApp Desktop opened - please send manually"
-            except:
+                    opened = webbrowser.open(whatsapp_url)
+                    if opened:
+                        return True, "WhatsApp Desktop opened - please send manually"
+            except Exception:
                 pass
             
-            # Method 3: Show message in dialog
+            # Method 4: GUI fallback
             self.show_message_dialog(patient_data, report_url)
-            
-            return True, f"Report URL generated: {report_url}"
+            return False, (
+                f"{api_message}. Opened local fallback options only. "
+                "Configure WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN for real auto-send."
+            )
             
         except Exception as e:
             error_msg = f"WhatsApp preparation failed: {str(e)}"
-            print(f"❌ {error_msg}")
+            print(f"WhatsApp error: {error_msg}")
             return False, error_msg
+
+    def send_whatsapp_via_cloud_api(self, mobile_number, message):
+        """Send WhatsApp text via Meta WhatsApp Cloud API."""
+        try:
+            if not self.whatsapp_phone_number_id or not self.whatsapp_access_token:
+                return False, "WhatsApp Cloud API is not configured"
+
+            url = f"{self.whatsapp_api_url}{self.whatsapp_phone_number_id}/messages"
+            headers = {
+                "Authorization": f"Bearer {self.whatsapp_access_token}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": mobile_number,
+                "type": "text",
+                "text": {
+                    "preview_url": True,
+                    "body": message,
+                },
+            }
+
+            response = requests.post(url, json=payload, headers=headers, timeout=20)
+            if response.status_code in (200, 201):
+                return True, "WhatsApp message sent via Cloud API"
+
+            try:
+                details = response.json()
+            except Exception:
+                details = response.text
+            return False, f"Cloud API error {response.status_code}: {details}"
+
+        except Exception as e:
+            return False, f"Cloud API request failed: {str(e)}"
 
     def show_message_dialog(self, patient_data, report_url):
         """Show dialog with message to copy"""
