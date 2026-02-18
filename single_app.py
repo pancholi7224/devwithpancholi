@@ -13,6 +13,7 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 from flask import render_template_string
 import base64
 import tempfile
+import urllib.parse
 
 # Try to import pdfkit, if not available we'll use alternative methods
 try:
@@ -558,7 +559,8 @@ class PathologyTestsForm(tk.Tk):
                     print(f"âœ… PDF saved to: {pdf_filepath}")
                     
                     # Generate view URL for the PDF
-                    pdf_url = f"http://localhost:5000/view-pdf/{pdf_filename}"
+                    base_url = self.get_public_base_url()
+                    pdf_url = f"{base_url}/view-pdf/{urllib.parse.quote(pdf_filename)}"
                     
                     # Send WhatsApp message with PDF view link
                     whatsapp_success, whatsapp_message = self.send_whatsapp_direct(
@@ -593,7 +595,8 @@ class PathologyTestsForm(tk.Tk):
                         f.write(html_content)
                     
                     # Use view-pdf for HTML files as well
-                    html_url = f"http://localhost:5000/view-pdf/{html_filename}"
+                    base_url = self.get_public_base_url()
+                    html_url = f"{base_url}/view-pdf/{urllib.parse.quote(html_filename)}"
                     
                     whatsapp_success, whatsapp_message = self.send_whatsapp_direct(
                         patient_data.get('mobile', ''), 
@@ -681,6 +684,21 @@ class PathologyTestsForm(tk.Tk):
         self.flask_thread = threading.Thread(target=run_flask, daemon=True)
         self.flask_thread.start()
         time.sleep(2)  # Give server time to start
+
+    def get_public_base_url(self):
+        """Resolve the external/public base URL used in patient-facing links."""
+        configured_base = os.getenv("PUBLIC_BASE_URL", "").strip()
+        if configured_base:
+            return configured_base.rstrip("/")
+
+        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip()
+        forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",")[0].strip()
+
+        if forwarded_host:
+            scheme = forwarded_proto or request.scheme or "https"
+            return f"{scheme}://{forwarded_host}".rstrip("/")
+
+        return request.host_url.rstrip("/")
 
     def launch_web_app(self):
         """Launch the web application in browser"""
@@ -1176,7 +1194,7 @@ class PathologyTestsForm(tk.Tk):
       
       console.log('Submitting data:', submissionData);
       
-      fetch('http://localhost:5000/submit-report', {{
+      fetch('/submit-report', {{
         method: 'POST',
         headers: {{
           'Content-Type': 'application/json',
@@ -1738,6 +1756,7 @@ class PathologyTestsForm(tk.Tk):
 
     def create_whatsapp_message(self, patient_data, pdf_url):
         """Create WhatsApp message content with user-friendly URL"""
+        pdf_url = str(pdf_url or "").strip()
         return f"""
 ðŸ”¬ *UJJIVAN HOSPITAL - PATHOLOGY REPORT*
 
@@ -1757,7 +1776,7 @@ Your pathology test report is ready for viewing.
 
 *Instructions:*
 1. Click/tap the link above
-2. Your report will open in browser
+2. If it is not clickable, copy and paste it in browser
 3. You can download/print if needed
 
 *Report ID:* {patient_data.get('opd_no', 'N/A')}

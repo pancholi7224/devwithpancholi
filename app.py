@@ -378,7 +378,8 @@ class PathologyTestsForm(tk.Tk):
                 
                 # Try to generate PDF if possible
                 pdf_generated = False
-                pdf_url = f"http://localhost:5000/view-report/{html_filename}"
+                base_url = self.get_public_base_url()
+                pdf_url = f"{base_url}/view-report/{urllib.parse.quote(html_filename)}"
                 
                 if PDFKIT_AVAILABLE or WEASYPRINT_AVAILABLE:
                     pdf_filename = f"Pathology_Report_{patient_name_clean}_{timestamp}.pdf"
@@ -386,7 +387,7 @@ class PathologyTestsForm(tk.Tk):
                     
                     if self.generate_pdf(html_content, pdf_filepath):
                         pdf_generated = True
-                        pdf_url = f"http://localhost:5000/view-report/{pdf_filename}"
+                        pdf_url = f"{base_url}/view-report/{urllib.parse.quote(pdf_filename)}"
                         print(f"✅ PDF saved to: {pdf_filepath}")
                 
                 # Send WhatsApp message with report link
@@ -746,6 +747,21 @@ class PathologyTestsForm(tk.Tk):
         '''
         return html
 
+    def get_public_base_url(self):
+        """Resolve the external/public base URL used in patient-facing links."""
+        configured_base = os.getenv("PUBLIC_BASE_URL", "").strip()
+        if configured_base:
+            return configured_base.rstrip("/")
+
+        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip()
+        forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",")[0].strip()
+
+        if forwarded_host:
+            scheme = forwarded_proto or request.scheme or "https"
+            return f"{scheme}://{forwarded_host}".rstrip("/")
+
+        return request.host_url.rstrip("/")
+
     def generate_exact_format_html_form(self, patient_data, selected_tests):
         """Generate HTML form for entering test results"""
         serial_no = 1
@@ -1060,7 +1076,7 @@ class PathologyTestsForm(tk.Tk):
                     btn.innerHTML = '⏳ Submitting...';
                     btn.disabled = true;
                     
-                    fetch('http://localhost:5000/submit-report', {{
+                    fetch('/submit-report', {{
                         method: 'POST',
                         headers: {{
                             'Content-Type': 'application/json',
@@ -1554,6 +1570,7 @@ class PathologyTestsForm(tk.Tk):
 
     def create_whatsapp_message(self, patient_data, report_url):
         """Create WhatsApp message content"""
+        report_url = str(report_url or "").strip()
         return f"""🔬 *UJJIVAN HOSPITAL - PATHOLOGY REPORT*
 
 Dear {patient_data.get('name', 'Patient')},
@@ -1573,7 +1590,7 @@ Your pathology test report is ready.
 
 *Instructions:*
 1. Click/tap the link above
-2. Your report will open in browser
+2. If it is not clickable, copy and paste it in browser
 3. You can download/print if needed
 
 *Report ID:* {patient_data.get('opd_no', 'N/A')}
