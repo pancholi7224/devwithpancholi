@@ -1,4 +1,4 @@
-try:
+﻿try:
     import tkinter as tk
     from tkinter import ttk, messagebox
     TK_AVAILABLE = True
@@ -116,8 +116,8 @@ class PathologyTestsForm(TkBase):
             "Reticulocyte count": "2-5% of RBC",
             "Haematocrit/PCV": "M=39-49%, F=33-43%",
             "MCV": "76-100 fl",
-            "MCH": "29.5 ± 2.5 pg",
-            "MCHC": "32.5 ± 2.5 gm/dl",
+            "MCH": "29.5 Â± 2.5 pg",
+            "MCHC": "32.5 Â± 2.5 gm/dl",
             "Malaria Parasite": "Negative",
             "BLOOD GROUP": "Rh = Positive/Negative",
             "Bleeding Time": "2-7 Min.",
@@ -198,7 +198,7 @@ class PathologyTestsForm(TkBase):
     def setup_gui(self):
         """Setup the main GUI window"""
         # Main title
-        title_label = tk.Label(self, text="🏥 UJJIVAN HOSPITAL", 
+        title_label = tk.Label(self, text="ðŸ¥ UJJIVAN HOSPITAL", 
                               font=("Arial", 24, "bold"), bg="#f0e1c6", fg="#003366")
         title_label.pack(pady=(20,5))
         
@@ -215,18 +215,18 @@ class PathologyTestsForm(TkBase):
         info_frame.pack(pady=10, padx=20, fill="x")
         
         info_text = """This system will open in your web browser where you can:
-• Enter patient information
-• Select pathology tests
-• Enter test results
-• Generate PDF reports
-• Send reports via WhatsApp"""
+â€¢ Enter patient information
+â€¢ Select pathology tests
+â€¢ Enter test results
+â€¢ Generate PDF reports
+â€¢ Send reports via WhatsApp"""
         
         info_label = tk.Label(info_frame, text=info_text, bg="white", 
                              font=("Arial", 11), justify=tk.LEFT, padx=10, pady=10)
         info_label.pack(padx=5, pady=5, fill="x")
         
         # Launch button
-        launch_btn = tk.Button(self, text="🚀 Launch Web Application", 
+        launch_btn = tk.Button(self, text="ðŸš€ Launch Web Application", 
                               fg="white", bg="#28a745", font=("Arial", 16, "bold"), 
                               command=self.launch_web_app, height=2, width=25,
                               cursor="hand2")
@@ -248,7 +248,7 @@ class PathologyTestsForm(TkBase):
         self.status_label.pack(side="left")
         
         # Reports directory link
-        reports_btn = tk.Button(self, text="📁 Open Reports Folder", 
+        reports_btn = tk.Button(self, text="ðŸ“ Open Reports Folder", 
                               command=self.open_reports_folder,
                               bg="#007bff", fg="white", font=("Arial", 10))
         reports_btn.pack(pady=5)
@@ -403,7 +403,7 @@ class PathologyTestsForm(TkBase):
                     if self.generate_pdf(html_content, pdf_filepath):
                         pdf_generated = True
                         pdf_url = f"{base_url}/view-report/{pdf_filename}"
-                        print(f"✅ PDF saved to: {pdf_filepath}")
+                        print(f"âœ… PDF saved to: {pdf_filepath}")
                 
                 # Send WhatsApp message with report link
                 whatsapp_success, whatsapp_message = self.send_whatsapp_message(
@@ -433,7 +433,7 @@ class PathologyTestsForm(TkBase):
                 })
                     
             except Exception as e:
-                print(f"❌ Error in form submission: {e}")
+                print(f"âŒ Error in form submission: {e}")
                 import traceback
                 traceback.print_exc()
                 return jsonify({
@@ -584,13 +584,13 @@ class PathologyTestsForm(TkBase):
             <div class="container">
                 <div class="hospital-card">
                     <div class="hospital-header">
-                        <h1>🏥 UJJIVAN HOSPITAL</h1>
+                        <h1>ðŸ¥ UJJIVAN HOSPITAL</h1>
                         <h3>Pathology Laboratory System</h3>
                         <p class="text-muted">Vidyut Nagar, Gautam Budh Nagar, Uttar Pradesh - 201008</p>
                     </div>
                     
                     <div class="info-box">
-                        <h5>📋 Instructions:</h5>
+                        <h5>ðŸ“‹ Instructions:</h5>
                         <ul class="mb-0">
                             <li>Fill in all patient details (fields marked with * are required)</li>
                             <li>Select the tests to be performed</li>
@@ -683,7 +683,7 @@ class PathologyTestsForm(TkBase):
                     </div>
                     
                     <button class="btn-generate" onclick="generateForm()">
-                        📋 Generate Fillable Form
+                        ðŸ“‹ Generate Fillable Form
                     </button>
                 </div>
             </div>
@@ -741,7 +741,7 @@ class PathologyTestsForm(TkBase):
                     // Show loading state
                     const btn = document.querySelector('.btn-generate');
                     const originalText = btn.innerHTML;
-                    btn.innerHTML = '⏳ Loading...';
+                    btn.innerHTML = 'â³ Loading...';
                     btn.disabled = true;
 
                     // Redirect to fillable form
@@ -919,9 +919,9 @@ class PathologyTestsForm(TkBase):
         <body>
             <div class="report-container">
                 <div class="header">
-                    <h2>🏥 UJJIVAN HOSPITAL</h2>
-                    <p>Pathology Laboratory • Vidyut Nagar, Gautam Budh Nagar, UP - 201008</p>
-                    <p>📞 Hospital: 0120-1234567 | 📧 Email: pathology@ujjivanhospital.com</p>
+                    <h2>ðŸ¥ UJJIVAN HOSPITAL</h2>
+                    <p>Pathology Laboratory â€¢ Vidyut Nagar, Gautam Budh Nagar, UP - 201008</p>
+                    <p>ðŸ“ž Hospital: 0120-1234567 | ðŸ“§ Email: pathology@ujjivanhospital.com</p>
                 </div>
                 
                 <div class="patient-info">
@@ -1006,7 +1006,7 @@ class PathologyTestsForm(TkBase):
                 <div class="row mt-4">
                     <div class="col-md-12 text-center">
                         <button class="btn-submit" onclick="submitForm()">
-                            ✅ Submit & Send WhatsApp Report
+                            âœ… Submit & Send WhatsApp Report
                         </button>
                     </div>
                 </div>
@@ -1073,7 +1073,7 @@ class PathologyTestsForm(TkBase):
                     // Show loading state
                     const btn = document.querySelector('.btn-submit');
                     const originalText = btn.innerHTML;
-                    btn.innerHTML = '⏳ Submitting...';
+                    btn.innerHTML = 'â³ Submitting...';
                     btn.disabled = true;
                     
                     fetch('/submit-report', {{
@@ -1095,7 +1095,7 @@ class PathologyTestsForm(TkBase):
                     }})
                     .then(data => {{
                         if (data.success) {{
-                            alert(`✅ Report submitted successfully!\\n\\n{data.message}\\n\\nWhatsApp Status: {data.whatsapp_message}\\n\\nThe patient can view their report at:\\n{data.pdf_url}`);
+                            alert(`âœ… Report submitted successfully!\\n\\n${{data.message}}\\n\\nWhatsApp Status: ${{data.whatsapp_message}}\\n\\nThe patient can view their report at:\\n${{data.pdf_url}}`);
                             
                             // Open report in new tab
                             if (data.pdf_url) {{
@@ -1107,11 +1107,11 @@ class PathologyTestsForm(TkBase):
                                 window.print();
                             }}
                         }} else {{
-                            alert('❌ Error: ' + data.message);
+                            alert('âŒ Error: ' + data.message);
                         }}
                     }})
                     .catch(error => {{
-                        alert('❌ Error submitting form: ' + error);
+                        alert('âŒ Error submitting form: ' + error);
                         console.error('Error:', error);
                     }})
                     .finally(() => {{
@@ -1339,7 +1339,7 @@ class PathologyTestsForm(TkBase):
             if WEASYPRINT_AVAILABLE:
                 try:
                     HTML(string=html_content, encoding='utf-8').write_pdf(output_path)
-                    print(f"✅ PDF generated with WeasyPrint: {output_path}")
+                    print(f"âœ… PDF generated with WeasyPrint: {output_path}")
                     return True
                 except Exception as e:
                     print(f"WeasyPrint failed: {e}")
@@ -1377,17 +1377,17 @@ class PathologyTestsForm(TkBase):
                     else:
                         pdfkit.from_string(html_content, output_path, options=options)
                     
-                    print(f"✅ PDF generated with pdfkit: {output_path}")
+                    print(f"âœ… PDF generated with pdfkit: {output_path}")
                     return True
                     
                 except Exception as e:
                     print(f"pdfkit failed: {e}")
             
-            print("⚠️ No PDF generation method available. Using HTML report.")
+            print("âš ï¸ No PDF generation method available. Using HTML report.")
             return False
             
         except Exception as e:
-            print(f"❌ Error generating PDF: {e}")
+            print(f"âŒ Error generating PDF: {e}")
             return False
 
     def store_completed_report(self, patient_data, test_results, report_path, whatsapp_success, whatsapp_message):
@@ -1415,11 +1415,11 @@ class PathologyTestsForm(TkBase):
             ))
             
             self.conn.commit()
-            print(f"✅ Report stored in database. WhatsApp: {whatsapp_status}")
+            print(f"âœ… Report stored in database. WhatsApp: {whatsapp_status}")
             return True
             
         except Exception as e:
-            print(f"❌ Error storing report: {e}")
+            print(f"âŒ Error storing report: {e}")
             return False
 
     def validate_mobile_number(self, mobile_number):
@@ -1447,7 +1447,7 @@ class PathologyTestsForm(TkBase):
             if mobile_error:
                 return False, mobile_error
             
-            print(f"📱 Preparing WhatsApp for: {formatted_mobile}")
+            print(f"ðŸ“± Preparing WhatsApp for: {formatted_mobile}")
             
             # Create message
             message = self.create_whatsapp_message(patient_data, report_url)
@@ -1460,7 +1460,7 @@ class PathologyTestsForm(TkBase):
                 # Open in default browser
                 webbrowser.open(whatsapp_url)
                 
-                print("✅ WhatsApp Web opened in browser")
+                print("âœ… WhatsApp Web opened in browser")
                 return True, "WhatsApp Web opened - please send manually"
                 
             except Exception as e:
@@ -1484,7 +1484,7 @@ class PathologyTestsForm(TkBase):
             
         except Exception as e:
             error_msg = f"WhatsApp preparation failed: {str(e)}"
-            print(f"❌ {error_msg}")
+            print(f"âŒ {error_msg}")
             return False, error_msg
 
     def show_message_dialog(self, patient_data, report_url):
@@ -1502,7 +1502,7 @@ class PathologyTestsForm(TkBase):
         dialog.grab_set()
         
         # Title
-        tk.Label(dialog, text="📱 WhatsApp Message", font=("Arial", 16, "bold"), 
+        tk.Label(dialog, text="ðŸ“± WhatsApp Message", font=("Arial", 16, "bold"), 
                 bg="white", fg="#003366").pack(pady=10)
         
         # Instructions
@@ -1532,20 +1532,20 @@ class PathologyTestsForm(TkBase):
         def copy_message():
             dialog.clipboard_clear()
             dialog.clipboard_append(message)
-            tk.Label(button_frame, text="✓ Copied!", fg="green", bg="white").pack(side="left", padx=5)
+            tk.Label(button_frame, text="âœ“ Copied!", fg="green", bg="white").pack(side="left", padx=5)
         
         def open_whatsapp():
             encoded_message = urllib.parse.quote(message)
             whatsapp_url = f"https://web.whatsapp.com/send?text={encoded_message}"
             webbrowser.open(whatsapp_url)
         
-        tk.Button(button_frame, text="📋 Copy Message", command=copy_message,
+        tk.Button(button_frame, text="ðŸ“‹ Copy Message", command=copy_message,
                  bg="#007bff", fg="white", font=("Arial", 10)).pack(side="left", padx=5)
         
-        tk.Button(button_frame, text="🌐 Open WhatsApp Web", command=open_whatsapp,
+        tk.Button(button_frame, text="ðŸŒ Open WhatsApp Web", command=open_whatsapp,
                  bg="#25D366", fg="white", font=("Arial", 10)).pack(side="left", padx=5)
         
-        tk.Button(button_frame, text="✅ Close", command=dialog.destroy,
+        tk.Button(button_frame, text="âœ… Close", command=dialog.destroy,
                  bg="#6c757d", fg="white", font=("Arial", 10)).pack(side="left", padx=5)
         
         # Report URL
@@ -1565,26 +1565,26 @@ class PathologyTestsForm(TkBase):
             dialog.clipboard_append(report_url)
             tk.Label(url_frame, text="URL copied!", fg="green", bg="white").pack()
         
-        tk.Button(url_frame, text="📋 Copy URL", command=copy_url,
+        tk.Button(url_frame, text="ðŸ“‹ Copy URL", command=copy_url,
                  bg="#28a745", fg="white", font=("Arial", 9)).pack(pady=5)
 
     def create_whatsapp_message(self, patient_data, report_url):
         """Create WhatsApp message content"""
-        return f"""🔬 *UJJIVAN HOSPITAL - PATHOLOGY REPORT*
+        return f"""ðŸ”¬ *UJJIVAN HOSPITAL - PATHOLOGY REPORT*
 
 Dear {patient_data.get('name', 'Patient')},
 
 Your pathology test report is ready.
 
 *Patient Details:*
-• Name: {patient_data.get('name', '')}
-• Age: {patient_data.get('age', '')}
-• Gender: {patient_data.get('gender', '')}
-• Doctor: {patient_data.get('doctor', 'N/A')}
-• Sample Date: {patient_data.get('sample_date', '')}
-• OPD No: {patient_data.get('opd_no', 'N/A')}
+â€¢ Name: {patient_data.get('name', '')}
+â€¢ Age: {patient_data.get('age', '')}
+â€¢ Gender: {patient_data.get('gender', '')}
+â€¢ Doctor: {patient_data.get('doctor', 'N/A')}
+â€¢ Sample Date: {patient_data.get('sample_date', '')}
+â€¢ OPD No: {patient_data.get('opd_no', 'N/A')}
 
-📄 *View Your Report Online:*
+ðŸ“„ *View Your Report Online:*
 {report_url}
 
 *Instructions:*
@@ -1598,8 +1598,8 @@ Your pathology test report is ready.
 *Note:* This link is valid for 30 days. Contact hospital for queries.
 
 Thank you for choosing UJJIVAN Hospital.
-📍 Vidyut Nagar, Gautam Budh Nagar, UP - 201008
-📞 Hospital: 0120-1234567
+ðŸ“ Vidyut Nagar, Gautam Budh Nagar, UP - 201008
+ðŸ“ž Hospital: 0120-1234567
 """
 
     def start_flask_server(self):
@@ -1607,17 +1607,17 @@ Thank you for choosing UJJIVAN Hospital.
         def run_flask():
             try:
                 print("="*50)
-                print("🚀 Starting UJJIVAN Hospital Pathology System")
+                print("ðŸš€ Starting UJJIVAN Hospital Pathology System")
                 print("="*50)
-                print(f"📅 Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
-                print(f"📁 Reports directory: {os.path.abspath('reports/completed_reports')}")
-                print(f"🌐 Web interface: http://localhost:5000")
-                print(f"📱 WhatsApp integration: {'Enabled' if self.whatsapp_enabled else 'Disabled'}")
+                print(f"ðŸ“… Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
+                print(f"ðŸ“ Reports directory: {os.path.abspath('reports/completed_reports')}")
+                print(f"ðŸŒ Web interface: http://localhost:5000")
+                print(f"ðŸ“± WhatsApp integration: {'Enabled' if self.whatsapp_enabled else 'Disabled'}")
                 print("="*50)
                 
                 self.flask_app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False, threaded=True)
             except Exception as e:
-                print(f"❌ Flask server error: {e}")
+                print(f"âŒ Flask server error: {e}")
                 if self.enable_gui and hasattr(self, "status_label"):
                     self.status_label.config(text=f"Server error: {e}")
         
@@ -1632,11 +1632,11 @@ Thank you for choosing UJJIVAN Hospital.
         flask_url = "http://localhost:5000/"
         webbrowser.open(flask_url)
         
-        self.status_label.config(text="✅ Web application opened in browser!")
+        self.status_label.config(text="âœ… Web application opened in browser!")
         messagebox.showinfo("Success", 
             f"Web application opened in browser!\n\n"
             f"If it doesn't load automatically, visit:\n{flask_url}\n\n"
-            f"📁 Reports are saved in:\n{os.path.abspath('reports/completed_reports')}")
+            f"ðŸ“ Reports are saved in:\n{os.path.abspath('reports/completed_reports')}")
 
 if __name__ == "__main__":
     app = PathologyTestsForm(enable_gui=True, auto_start_server=True)
@@ -1654,3 +1654,4 @@ if __name__ == "__main__":
 else:
     # Render / Gunicorn entrypoint: run Flask routes without desktop GUI.
     app = PathologyTestsForm(enable_gui=False, auto_start_server=False).flask_app
+

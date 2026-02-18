@@ -1079,7 +1079,7 @@ class PathologyTestsForm(tk.Tk):
                     }})
                     .then(data => {{
                         if (data.success) {{
-                            alert(`✅ Report submitted successfully!\\n\\n{data.message}\\n\\nWhatsApp Status: {data.whatsapp_message}\\n\\nThe patient can view their report at:\\n{data.pdf_url}`);
+                            alert(`✅ Report submitted successfully!\\n\\n${{data.message}}\\n\\nWhatsApp Status: ${{data.whatsapp_message}}\\n\\nThe patient can view their report at:\\n${{data.pdf_url}}`);
                             
                             // Open report in new tab
                             if (data.pdf_url) {{
