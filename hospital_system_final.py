@@ -67,10 +67,21 @@ class PathologyTestsForm(TkBase):
         self.whatsapp_enabled = True
         self.whatsapp_method = "web"  # Options: "web", "api", "desktop"
         
-        # WhatsApp API Configuration (for future use)
-        self.whatsapp_api_url = "https://graph.facebook.com/v17.0/"
+        # WhatsApp API configuration
+        self.whatsapp_api_url = os.getenv("WHATSAPP_API_URL", "https://graph.facebook.com/v17.0/").strip()
+        if not self.whatsapp_api_url.endswith("/"):
+            self.whatsapp_api_url += "/"
         self.whatsapp_phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
         self.whatsapp_access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
+        self.whatsapp_default_country_code = re.sub(
+            r"\D", "", os.getenv("WHATSAPP_DEFAULT_COUNTRY_CODE", "91")
+        ) or "91"
+        self.whatsapp_template_name = os.getenv("WHATSAPP_TEMPLATE_NAME", "").strip()
+        self.whatsapp_template_lang = os.getenv("WHATSAPP_TEMPLATE_LANG", "en_US").strip()
+        template_vars_raw = os.getenv("WHATSAPP_TEMPLATE_BODY_VARS", "")
+        self.whatsapp_template_body_vars = [
+            item.strip() for item in template_vars_raw.split(",") if item.strip()
+        ]
         
         # Hospital Contact Configuration
         self.hospital_phone = os.getenv("HOSPITAL_PHONE", "0120-1234567").strip()
@@ -1801,20 +1812,32 @@ class PathologyTestsForm(TkBase):
             return False
 
     def validate_mobile_number(self, mobile_number):
-        """Validate and format mobile number"""
+        """Validate and normalize number for WhatsApp Cloud API."""
         try:
-            # Remove any non-digit characters
-            mobile_clean = re.sub(r'\D', '', str(mobile_number))
-            
-            # Check if it's 10 digits (Indian format)
+            mobile_clean = re.sub(r"\D", "", str(mobile_number or ""))
+            if not mobile_clean:
+                return None, "Mobile number is required."
+
+            # Remove international prefix "00" if provided.
+            if mobile_clean.startswith("00"):
+                mobile_clean = mobile_clean[2:]
+
+            # Normalize common local format like 0XXXXXXXXXX.
+            if len(mobile_clean) == 11 and mobile_clean.startswith("0"):
+                mobile_clean = mobile_clean[1:]
+
+            # If only local 10-digit number is given, prepend configured country code.
             if len(mobile_clean) == 10:
-                return mobile_clean, None
-            # Check if it's 12 digits (with country code 91)
-            elif len(mobile_clean) == 12 and mobile_clean.startswith('91'):
-                return mobile_clean, None
-            else:
-                return None, "Invalid mobile number format. Please enter a valid 10-digit Indian mobile number."
-                
+                mobile_clean = f"{self.whatsapp_default_country_code}{mobile_clean}"
+
+            # Cloud API expects international format digits (typically 8-15 digits).
+            if not (8 <= len(mobile_clean) <= 15):
+                return None, (
+                    "Invalid mobile number format. Use international format digits only, "
+                    "for example 919876543210."
+                )
+
+            return mobile_clean, None
         except Exception as e:
             return None, f"Mobile validation error: {str(e)}"
 
@@ -1829,7 +1852,12 @@ class PathologyTestsForm(TkBase):
             message = self.create_whatsapp_message(patient_data, report_url)
 
             # Method 1: Cloud API (works in Render/server mode).
-            api_success, api_message = self.send_whatsapp_via_cloud_api(formatted_mobile, message)
+            api_success, api_message = self.send_whatsapp_via_cloud_api(
+                formatted_mobile,
+                message,
+                report_url=report_url,
+                patient_data=patient_data,
+            )
             if api_success:
                 return True, api_message
 
@@ -1860,9 +1888,12 @@ class PathologyTestsForm(TkBase):
                 return True, f"Report URL generated: {report_url}"
 
             # Server mode fallback: be explicit and fail.
+            config_hint = ""
+            if not self.whatsapp_phone_number_id or not self.whatsapp_access_token:
+                config_hint = " Configure WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN."
             return False, (
                 f"{api_message}. WhatsApp Web/Desktop fallback is unavailable on server mode. "
-                "Configure WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN."
+                f"{config_hint}".strip()
             )
 
         except Exception as e:
@@ -1870,8 +1901,96 @@ class PathologyTestsForm(TkBase):
             print(f"WhatsApp error: {error_msg}")
             return False, error_msg
 
-    def send_whatsapp_via_cloud_api(self, mobile_number, message):
-        """Send WhatsApp text via Meta WhatsApp Cloud API."""
+    def _extract_cloud_api_error(self, response):
+        """Extract normalized error details from Cloud API response."""
+        try:
+            details = response.json()
+        except Exception:
+            details = {"raw": response.text}
+
+        if isinstance(details, dict):
+            error_obj = details.get("error", {})
+            if not isinstance(error_obj, dict):
+                error_obj = {}
+        else:
+            error_obj = {}
+
+        error_code = str(error_obj.get("code", "")).strip()
+        error_message = str(error_obj.get("message", "")).strip() or str(details)
+        return error_code, error_message
+
+    def _should_try_template_fallback(self, error_code, error_message):
+        """Template fallback helps when text is blocked by conversation window rules."""
+        message_lc = (error_message or "").lower()
+        if error_code in {"131047", "470"}:
+            return True
+        return (
+            "24-hour" in message_lc
+            or "24 hour" in message_lc
+            or "outside the allowed window" in message_lc
+        )
+
+    def _build_template_parameters(self, patient_data, report_url):
+        params = []
+        for field_name in self.whatsapp_template_body_vars:
+            key = field_name.strip()
+            if not key:
+                continue
+
+            if key == "report_url":
+                value = str(report_url or "").strip()
+            else:
+                value = str((patient_data or {}).get(key, "")).strip()
+
+            params.append({"type": "text", "text": value or "-"})
+        return params
+
+    def send_whatsapp_template_via_cloud_api(self, mobile_number, patient_data, report_url):
+        """Send WhatsApp template via Meta Cloud API (for business-initiated messages)."""
+        if not self.whatsapp_template_name:
+            return False, "WHATSAPP_TEMPLATE_NAME is not configured"
+
+        url = f"{self.whatsapp_api_url}{self.whatsapp_phone_number_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {self.whatsapp_access_token}",
+            "Content-Type": "application/json",
+        }
+        template_obj = {
+            "name": self.whatsapp_template_name,
+            "language": {"code": self.whatsapp_template_lang},
+        }
+        template_params = self._build_template_parameters(patient_data, report_url)
+        if template_params:
+            template_obj["components"] = [
+                {
+                    "type": "body",
+                    "parameters": template_params,
+                }
+            ]
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": mobile_number,
+            "type": "template",
+            "template": template_obj,
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=20)
+        except Exception as e:
+            return False, f"Template API request failed: {str(e)}"
+
+        if response.status_code in (200, 201):
+            return True, f"WhatsApp template sent ({self.whatsapp_template_name})"
+
+        error_code, error_message = self._extract_cloud_api_error(response)
+        return False, (
+            f"Template API error {response.status_code} "
+            f"(code {error_code or 'n/a'}): {error_message}"
+        )
+
+    def send_whatsapp_via_cloud_api(self, mobile_number, message, report_url=None, patient_data=None):
+        """Send WhatsApp text via Meta Cloud API, with optional template fallback."""
         try:
             if not self.whatsapp_phone_number_id or not self.whatsapp_access_token:
                 return False, "WhatsApp Cloud API is not configured"
@@ -1895,11 +2014,41 @@ class PathologyTestsForm(TkBase):
             if response.status_code in (200, 201):
                 return True, "WhatsApp message sent via Cloud API"
 
-            try:
-                details = response.json()
-            except Exception:
-                details = response.text
-            return False, f"Cloud API error {response.status_code}: {details}"
+            error_code, error_message = self._extract_cloud_api_error(response)
+
+            if self.whatsapp_template_name and self._should_try_template_fallback(
+                error_code, error_message
+            ):
+                template_success, template_message = self.send_whatsapp_template_via_cloud_api(
+                    mobile_number,
+                    patient_data or {},
+                    report_url,
+                )
+                if template_success:
+                    return True, template_message
+                return False, (
+                    f"Cloud text message blocked ({error_message}). "
+                    f"Template fallback failed: {template_message}"
+                )
+
+            if error_code == "131030":
+                return False, (
+                    "Recipient number is not allowed for current WhatsApp test setup. "
+                    "Add the patient number as a test recipient in Meta dashboard. "
+                    f"Details: {error_message}"
+                )
+
+            if error_code == "131026":
+                return False, (
+                    "Recipient number format is invalid for Cloud API. "
+                    "Use international digits only, for example 919876543210. "
+                    f"Details: {error_message}"
+                )
+
+            return False, (
+                f"Cloud API error {response.status_code} "
+                f"(code {error_code or 'n/a'}): {error_message}"
+            )
 
         except Exception as e:
             return False, f"Cloud API request failed: {str(e)}"
