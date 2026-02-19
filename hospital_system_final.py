@@ -485,6 +485,13 @@ class PathologyTestsForm(TkBase):
                     patient_data,
                     pdf_url
                 )
+                whatsapp_manual_url = None
+                manual_mobile, manual_mobile_error = self.validate_mobile_number(patient_data.get('mobile', ''))
+                if not manual_mobile_error:
+                    whatsapp_manual_url = self.build_whatsapp_web_url(
+                        manual_mobile,
+                        self.create_whatsapp_message(patient_data, pdf_url),
+                    )
 
                 # Send SMS (always by default, or only when WhatsApp fails if FAST2SMS_SEND_ALWAYS=false)
                 sms_success = None
@@ -523,6 +530,7 @@ class PathologyTestsForm(TkBase):
                     'delivery_success': delivery_success,
                     'whatsapp_status': 'sent' if whatsapp_success else 'failed',
                     'whatsapp_message': whatsapp_message,
+                    'whatsapp_manual_url': whatsapp_manual_url,
                     'sms_status': 'not_attempted' if sms_success is None else ('sent' if sms_success else 'failed'),
                     'sms_message': sms_message,
                     'pdf_path': report_path,
@@ -1562,7 +1570,17 @@ class PathologyTestsForm(TkBase):
                             const smsInfo = data.sms_message || 'SMS not attempted';
                             const deliveryFailed = data.delivery_status === 'failed' || data.delivery_success === false;
                             if (deliveryFailed) {{
-                                showError('Report saved but message was not sent.\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nSMS: ' + smsInfo + '\\n\\nPlease fix API setup and retry.');
+                                if (data.whatsapp_manual_url) {{
+                                    showSuccess('Report saved. WhatsApp API did not send automatically.\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nOpening WhatsApp Web now. Please click Send there.\\n\\nIf popup is blocked, open this link manually:\\n' + data.whatsapp_manual_url);
+                                    setTimeout(() => {{
+                                        const opened = window.open(data.whatsapp_manual_url, '_blank');
+                                        if (!opened) {{
+                                            window.location.href = data.whatsapp_manual_url;
+                                        }}
+                                    }}, 200);
+                                }} else {{
+                                    showError('Report saved but message was not sent.\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nSMS: ' + smsInfo + '\\n\\nPlease fix API setup and retry.');
+                                }}
                             }} else {{
                                 showSuccess((data.message || 'Report submitted successfully!') + '\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nSMS: ' + smsInfo + '\\n\\nRedirecting...');
                                 setTimeout(() => {{
@@ -2009,6 +2027,12 @@ class PathologyTestsForm(TkBase):
         except Exception as e:
             return None, f"Mobile validation error: {str(e)}"
 
+    def build_whatsapp_web_url(self, mobile_number, message):
+        """Build a client-openable WhatsApp URL with prefilled message."""
+        encoded_message = urllib.parse.quote(str(message or "").strip())
+        mobile_digits = re.sub(r"\D", "", str(mobile_number or ""))
+        return f"https://wa.me/{mobile_digits}?text={encoded_message}"
+
     def send_whatsapp_message(self, mobile_number, patient_data, report_url):
         """Send WhatsApp message with report link."""
         try:
@@ -2030,25 +2054,25 @@ class PathologyTestsForm(TkBase):
                 return True, api_message
 
             # Method 2: WhatsApp Web fallback (local desktop usage).
-            try:
-                encoded_message = urllib.parse.quote(message)
-                whatsapp_url = f"https://web.whatsapp.com/send?phone={formatted_mobile}&text={encoded_message}"
-                opened = webbrowser.open(whatsapp_url)
-                if opened:
-                    return True, "WhatsApp Web opened - please send manually"
-            except Exception as e:
-                print(f"WhatsApp Web fallback failed: {e}")
-
-            # Method 3: WhatsApp desktop deep-link fallback.
-            try:
-                if platform.system() == "Windows":
-                    encoded_message = urllib.parse.quote(message)
-                    whatsapp_url = f"whatsapp://send?phone={formatted_mobile}&text={encoded_message}"
+            if self.enable_gui:
+                try:
+                    whatsapp_url = self.build_whatsapp_web_url(formatted_mobile, message)
                     opened = webbrowser.open(whatsapp_url)
                     if opened:
-                        return True, "WhatsApp Desktop opened - please send manually"
-            except Exception:
-                pass
+                        return True, "WhatsApp Web opened - please send manually"
+                except Exception as e:
+                    print(f"WhatsApp Web fallback failed: {e}")
+
+                # Method 3: WhatsApp desktop deep-link fallback.
+                try:
+                    if platform.system() == "Windows":
+                        encoded_message = urllib.parse.quote(message)
+                        whatsapp_url = f"whatsapp://send?phone={formatted_mobile}&text={encoded_message}"
+                        opened = webbrowser.open(whatsapp_url)
+                        if opened:
+                            return True, "WhatsApp Desktop opened - please send manually"
+                except Exception:
+                    pass
 
             # Method 4: GUI dialog fallback for local app.
             if self.enable_gui:
