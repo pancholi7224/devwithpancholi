@@ -82,6 +82,26 @@ class PathologyTestsForm(TkBase):
         self.whatsapp_template_body_vars = [
             item.strip() for item in template_vars_raw.split(",") if item.strip()
         ]
+
+        # Fast2SMS configuration
+        self.fast2sms_enabled = os.getenv("FAST2SMS_ENABLED", "true").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        self.fast2sms_api_key = os.getenv(
+            "FAST2SMS_API_KEY",
+            "h78RGZEINSaQV2wyvWu3cdfzBqYMtH5lTOsr4ejA0bCPxJ19XkkIftcr0isUQ54Co3hqxaG7zTFSlVRw",
+        ).strip()
+        self.fast2sms_route = os.getenv("FAST2SMS_ROUTE", "q").strip()
+        self.fast2sms_language = os.getenv("FAST2SMS_LANGUAGE", "english").strip()
+        self.fast2sms_send_always = os.getenv("FAST2SMS_SEND_ALWAYS", "true").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
         
         # Hospital Contact Configuration
         self.hospital_phone = os.getenv("HOSPITAL_PHONE", "0120-1234567").strip()
@@ -322,9 +342,21 @@ class PathologyTestsForm(TkBase):
                     pdf_path TEXT,
                     whatsapp_status TEXT,
                     whatsapp_error TEXT,
+                    sms_status TEXT DEFAULT 'not_attempted',
+                    sms_error TEXT,
                     report_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+
+            # Add SMS columns for existing databases created before SMS integration.
+            self.cursor.execute("PRAGMA table_info(completed_reports)")
+            existing_columns = {col[1] for col in self.cursor.fetchall()}
+            if "sms_status" not in existing_columns:
+                self.cursor.execute(
+                    "ALTER TABLE completed_reports ADD COLUMN sms_status TEXT DEFAULT 'not_attempted'"
+                )
+            if "sms_error" not in existing_columns:
+                self.cursor.execute("ALTER TABLE completed_reports ADD COLUMN sms_error TEXT")
             
             # Create table for patient messages
             self.cursor.execute('''
@@ -445,6 +477,16 @@ class PathologyTestsForm(TkBase):
                     patient_data,
                     pdf_url
                 )
+
+                # Send SMS (always by default, or only when WhatsApp fails if FAST2SMS_SEND_ALWAYS=false)
+                sms_success = None
+                sms_message = "SMS not attempted."
+                should_send_sms = self.fast2sms_enabled and (self.fast2sms_send_always or not whatsapp_success)
+                if should_send_sms:
+                    sms_success, sms_message = self.send_sms_via_fast2sms(
+                        patient_data.get('mobile', ''),
+                        self.create_sms_message(patient_data, pdf_url)
+                    )
                 
                 # Store in database
                 report_path = pdf_filepath if pdf_generated else html_filepath
@@ -453,7 +495,9 @@ class PathologyTestsForm(TkBase):
                     test_results, 
                     report_path, 
                     whatsapp_success, 
-                    whatsapp_message
+                    whatsapp_message,
+                    sms_success,
+                    sms_message
                 )
                 
                 return jsonify({
@@ -461,6 +505,8 @@ class PathologyTestsForm(TkBase):
                     'message': 'Report submitted successfully!',
                     'whatsapp_status': 'sent' if whatsapp_success else 'failed',
                     'whatsapp_message': whatsapp_message,
+                    'sms_status': 'not_attempted' if sms_success is None else ('sent' if sms_success else 'failed'),
+                    'sms_message': sms_message,
                     'pdf_path': report_path,
                     'pdf_url': pdf_url,
                     'report_type': 'pdf' if pdf_generated else 'html'
@@ -1477,7 +1523,9 @@ class PathologyTestsForm(TkBase):
                         const data = await response.json();
                         
                         if (data.success) {{
-                            showSuccess('Report submitted successfully!\\n\\n' + data.whatsapp_message + '\\n\\nRedirecting...');
+                            const whatsappInfo = data.whatsapp_message || 'WhatsApp not attempted';
+                            const smsInfo = data.sms_message || 'SMS not attempted';
+                            showSuccess('Report submitted successfully!\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nSMS: ' + smsInfo + '\\n\\nRedirecting...');
                             setTimeout(() => {{
                                 window.location.href = '/';
                             }}, 3000);
@@ -1780,15 +1828,25 @@ class PathologyTestsForm(TkBase):
             print(f"PDF generation error: {e}")
             return False
 
-    def store_completed_report(self, patient_data, test_results, report_path, whatsapp_success, whatsapp_message):
+    def store_completed_report(
+        self,
+        patient_data,
+        test_results,
+        report_path,
+        whatsapp_success,
+        whatsapp_message,
+        sms_success,
+        sms_message,
+    ):
         """Store completed report in database"""
         try:
             whatsapp_status = "sent" if whatsapp_success else "failed"
+            sms_status = "not_attempted" if sms_success is None else ("sent" if sms_success else "failed")
             
             self.cursor.execute('''
                 INSERT INTO completed_reports 
-                (patient_name, patient_age, patient_gender, patient_mobile, doctor_name, opd_no, sample_date, test_results, pdf_path, whatsapp_status, whatsapp_error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (patient_name, patient_age, patient_gender, patient_mobile, doctor_name, opd_no, sample_date, test_results, pdf_path, whatsapp_status, whatsapp_error, sms_status, sms_error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 patient_data.get('name'),
                 patient_data.get('age'),
@@ -1800,16 +1858,63 @@ class PathologyTestsForm(TkBase):
                 json.dumps(test_results),
                 report_path,
                 whatsapp_status,
-                whatsapp_message
+                whatsapp_message,
+                sms_status,
+                sms_message
             ))
             
             self.conn.commit()
-            print(f"✅ Report stored in database. WhatsApp: {whatsapp_status}")
+            print(f"✅ Report stored in database. WhatsApp: {whatsapp_status}, SMS: {sms_status}")
             return True
             
         except Exception as e:
             print(f"Error storing report: {e}")
             return False
+
+    def send_sms_via_fast2sms(self, mobile_number, message):
+        """Send SMS via Fast2SMS API."""
+        if not self.fast2sms_enabled:
+            return False, "Fast2SMS is disabled."
+        if not self.fast2sms_api_key:
+            return False, "Fast2SMS API key is missing."
+
+        try:
+            mobile_clean = re.sub(r"\D", "", str(mobile_number or ""))
+            if len(mobile_clean) == 12 and mobile_clean.startswith("91"):
+                mobile_clean = mobile_clean[2:]
+            if len(mobile_clean) == 11 and mobile_clean.startswith("0"):
+                mobile_clean = mobile_clean[1:]
+            if len(mobile_clean) != 10:
+                return False, "Invalid mobile number for Fast2SMS (expected 10 digits)."
+
+            url = "https://www.fast2sms.com/dev/bulkV2"
+            params = {
+                "authorization": self.fast2sms_api_key,
+                "message": message,
+                "language": self.fast2sms_language,
+                "route": self.fast2sms_route,
+                "numbers": mobile_clean,
+            }
+            headers = {"cache-control": "no-cache"}
+
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+
+            try:
+                response_json = response.json()
+            except Exception:
+                return False, f"Fast2SMS returned non-JSON response: {response.text}"
+
+            if response_json.get("return") is True:
+                return True, "SMS sent successfully via Fast2SMS."
+
+            error_text = response_json.get("message", "Unknown error")
+            return False, f"Fast2SMS error: {error_text}"
+
+        except requests.exceptions.RequestException as e:
+            return False, f"Fast2SMS API request failed: {str(e)}"
+        except Exception as e:
+            return False, f"Error sending SMS via Fast2SMS: {str(e)}"
 
     def validate_mobile_number(self, mobile_number):
         """Validate and normalize number for WhatsApp Cloud API."""
@@ -2133,6 +2238,15 @@ class PathologyTestsForm(TkBase):
         
         tk.Button(url_frame, text="📋 Copy URL", command=copy_url,
                  bg="#28a745", fg="white", font=("Arial", 9)).pack(pady=5)
+
+    def create_sms_message(self, patient_data, report_url):
+        """Create concise SMS content with report link."""
+        patient_name = str((patient_data or {}).get("name", "Patient")).strip() or "Patient"
+        report_url = str(report_url or "").strip()
+        return (
+            f"Dear {patient_name}, your pathology report is ready. "
+            f"View it here: {report_url} - UJJIVAN Hospital"
+        )
 
     def create_whatsapp_message(self, patient_data, report_url):
         """Create WhatsApp message content with patient messaging CTA"""
