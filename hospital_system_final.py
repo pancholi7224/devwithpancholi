@@ -351,6 +351,14 @@ class PathologyTestsForm(TkBase):
             # Add SMS columns for existing databases created before SMS integration.
             self.cursor.execute("PRAGMA table_info(completed_reports)")
             existing_columns = {col[1] for col in self.cursor.fetchall()}
+            if "test_results" not in existing_columns:
+                self.cursor.execute("ALTER TABLE completed_reports ADD COLUMN test_results TEXT")
+            if "pdf_path" not in existing_columns:
+                self.cursor.execute("ALTER TABLE completed_reports ADD COLUMN pdf_path TEXT")
+            if "whatsapp_status" not in existing_columns:
+                self.cursor.execute("ALTER TABLE completed_reports ADD COLUMN whatsapp_status TEXT")
+            if "whatsapp_error" not in existing_columns:
+                self.cursor.execute("ALTER TABLE completed_reports ADD COLUMN whatsapp_error TEXT")
             if "sms_status" not in existing_columns:
                 self.cursor.execute(
                     "ALTER TABLE completed_reports ADD COLUMN sms_status TEXT DEFAULT 'not_attempted'"
@@ -469,7 +477,7 @@ class PathologyTestsForm(TkBase):
                     if self.generate_pdf(html_content, pdf_filepath):
                         pdf_generated = True
                         pdf_url = f"{base_url}/view-report/{urllib.parse.quote(pdf_filename)}"
-                        print(f"✅ PDF saved to: {pdf_filepath}")
+                        print(f"PDF saved to: {pdf_filepath}")
                 
                 # Send WhatsApp message with report link
                 whatsapp_success, whatsapp_message = self.send_whatsapp_message(
@@ -487,6 +495,14 @@ class PathologyTestsForm(TkBase):
                         patient_data.get('mobile', ''),
                         self.create_sms_message(patient_data, pdf_url)
                     )
+
+                delivery_success = bool(whatsapp_success) or bool(sms_success)
+                delivery_status = "sent" if delivery_success else "failed"
+                response_message = (
+                    "Report submitted and notification sent successfully!"
+                    if delivery_success
+                    else "Report submitted, but message delivery failed."
+                )
                 
                 # Store in database
                 report_path = pdf_filepath if pdf_generated else html_filepath
@@ -502,7 +518,9 @@ class PathologyTestsForm(TkBase):
                 
                 return jsonify({
                     'success': True,
-                    'message': 'Report submitted successfully!',
+                    'message': response_message,
+                    'delivery_status': delivery_status,
+                    'delivery_success': delivery_success,
                     'whatsapp_status': 'sent' if whatsapp_success else 'failed',
                     'whatsapp_message': whatsapp_message,
                     'sms_status': 'not_attempted' if sms_success is None else ('sent' if sms_success else 'failed'),
@@ -513,7 +531,7 @@ class PathologyTestsForm(TkBase):
                 })
                     
             except Exception as e:
-                print(f"❌ Error in form submission: {e}")
+                print(f"Error in form submission: {e}")
                 import traceback
                 traceback.print_exc()
                 return jsonify({
@@ -595,7 +613,7 @@ class PathologyTestsForm(TkBase):
                     ))
                     self.conn.commit()
                     message_id = self.cursor.lastrowid
-                    print(f"✅ Patient message stored: ID {message_id}")
+                    print(f"Patient message stored: ID {message_id}")
                 except Exception as db_error:
                     print(f"Database error: {db_error}")
                     return jsonify({
@@ -610,7 +628,7 @@ class PathologyTestsForm(TkBase):
                 })
                 
             except Exception as e:
-                print(f"❌ Error in message submission: {e}")
+                print(f"Error in message submission: {e}")
                 import traceback
                 traceback.print_exc()
                 return jsonify({
@@ -1542,10 +1560,15 @@ class PathologyTestsForm(TkBase):
                         if (data.success) {{
                             const whatsappInfo = data.whatsapp_message || 'WhatsApp not attempted';
                             const smsInfo = data.sms_message || 'SMS not attempted';
-                            showSuccess('Report submitted successfully!\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nSMS: ' + smsInfo + '\\n\\nRedirecting...');
-                            setTimeout(() => {{
-                                window.location.href = '/';
-                            }}, 3000);
+                            const deliveryFailed = data.delivery_status === 'failed' || data.delivery_success === false;
+                            if (deliveryFailed) {{
+                                showError('Report saved but message was not sent.\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nSMS: ' + smsInfo + '\\n\\nPlease fix API setup and retry.');
+                            }} else {{
+                                showSuccess((data.message || 'Report submitted successfully!') + '\\n\\nWhatsApp: ' + whatsappInfo + '\\n\\nSMS: ' + smsInfo + '\\n\\nRedirecting...');
+                                setTimeout(() => {{
+                                    window.location.href = '/';
+                                }}, 3000);
+                            }}
                         }} else {{
                             showError(data.message || 'Failed to submit report');
                         }}
@@ -1794,7 +1817,7 @@ class PathologyTestsForm(TkBase):
             if WEASYPRINT_AVAILABLE:
                 try:
                     HTML(string=html_content, encoding='utf-8').write_pdf(output_path)
-                    print(f"✅ PDF generated with WeasyPrint: {output_path}")
+                    print(f"PDF generated with WeasyPrint: {output_path}")
                     return True
                 except Exception as e:
                     print(f"WeasyPrint failed: {e}")
@@ -1832,13 +1855,13 @@ class PathologyTestsForm(TkBase):
                     else:
                         pdfkit.from_string(html_content, output_path, options=options)
                     
-                    print(f"✅ PDF generated with pdfkit: {output_path}")
+                    print(f"PDF generated with pdfkit: {output_path}")
                     return True
                     
                 except Exception as e:
                     print(f"pdfkit failed: {e}")
             
-            print(f"⚠️ PDF generation not available. Saving as HTML instead.")
+            print("PDF generation not available. Saving as HTML instead.")
             return False
             
         except Exception as e:
@@ -1881,7 +1904,7 @@ class PathologyTestsForm(TkBase):
             ))
             
             self.conn.commit()
-            print(f"✅ Report stored in database. WhatsApp: {whatsapp_status}, SMS: {sms_status}")
+            print(f"Report stored in database. WhatsApp: {whatsapp_status}, SMS: {sms_status}")
             return True
             
         except Exception as e:
@@ -1906,15 +1929,26 @@ class PathologyTestsForm(TkBase):
 
             url = "https://www.fast2sms.com/dev/bulkV2"
             params = {
-                "authorization": self.fast2sms_api_key,
                 "message": message,
                 "language": self.fast2sms_language,
                 "route": self.fast2sms_route,
                 "numbers": mobile_clean,
             }
-            headers = {"cache-control": "no-cache"}
+            headers = {
+                "cache-control": "no-cache",
+                "authorization": self.fast2sms_api_key,
+            }
 
-            response = requests.get(url, params=params, headers=headers, timeout=10)
+            # Try primary request style first (header auth + query params).
+            response = requests.get(url, params=params, headers=headers, timeout=12)
+
+            # Fallback for compatibility: some accounts/workflows expect authorization in query string.
+            if response.status_code in (401, 403):
+                params_with_auth = dict(params)
+                params_with_auth["authorization"] = self.fast2sms_api_key
+                fallback_headers = {"cache-control": "no-cache"}
+                response = requests.get(url, params=params_with_auth, headers=fallback_headers, timeout=12)
+
             response.raise_for_status()
 
             try:
@@ -1922,10 +1956,22 @@ class PathologyTestsForm(TkBase):
             except Exception:
                 return False, f"Fast2SMS returned non-JSON response: {response.text}"
 
-            if response_json.get("return") is True:
+            return_flag = response_json.get("return")
+            is_success = return_flag is True or str(return_flag).strip().lower() == "true"
+            if is_success:
+                request_id = str(response_json.get("request_id", "")).strip()
+                if request_id:
+                    return True, f"SMS sent successfully via Fast2SMS (request_id: {request_id})"
                 return True, "SMS sent successfully via Fast2SMS."
 
             error_text = response_json.get("message", "Unknown error")
+            if isinstance(error_text, list):
+                error_text = "; ".join(str(item) for item in error_text)
+            error_text = str(error_text)
+
+            code_hint = response_json.get("code")
+            if code_hint:
+                return False, f"Fast2SMS error [{code_hint}]: {error_text}"
             return False, f"Fast2SMS error: {error_text}"
 
         except requests.exceptions.RequestException as e:
@@ -2312,18 +2358,18 @@ Thank you for choosing UJJIVAN Hospital.
         def run_flask():
             try:
                 print("="*50)
-                print("🚀 Starting UJJIVAN Hospital Pathology System")
+                print("Starting UJJIVAN Hospital Pathology System")
                 print("="*50)
-                print(f"📅 Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
-                print(f"📁 Reports directory: {os.path.abspath('reports/completed_reports')}")
-                print(f"🌐 Web interface: http://localhost:5000")
-                print(f"📱 WhatsApp integration: {'Enabled' if self.whatsapp_enabled else 'Disabled'}")
-                print(f"💬 Patient Messaging: Enabled")
+                print(f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
+                print(f"Reports directory: {os.path.abspath('reports/completed_reports')}")
+                print("Web interface: http://localhost:5000")
+                print(f"WhatsApp integration: {'Enabled' if self.whatsapp_enabled else 'Disabled'}")
+                print("Patient Messaging: Enabled")
                 print("="*50)
                 
                 self.flask_app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False, threaded=True)
             except Exception as e:
-                print(f"❌ Flask server error: {e}")
+                print(f"Flask server error: {e}")
                 if self.enable_gui and hasattr(self, "status_label"):
                     self.status_label.config(text=f"Server error: {e}")
         
