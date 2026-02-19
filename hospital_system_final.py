@@ -1265,9 +1265,26 @@ class PathologyTestsForm(TkBase):
         return html
 
     def get_public_base_url(self):
-        """Get the public base URL for the application"""
-        # For local development
-        return "http://localhost:5000"
+        """Resolve public base URL for patient-facing links."""
+        explicit_base_url = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+        if explicit_base_url:
+            return explicit_base_url
+
+        # If inside an HTTP request, derive the public host from headers.
+        # This supports reverse proxies (Render, Nginx, etc.).
+        try:
+            forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip()
+            forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",")[0].strip()
+            host = forwarded_host or request.host
+            scheme = forwarded_proto or request.scheme or "http"
+            if host:
+                return f"{scheme}://{host}".rstrip("/")
+        except Exception:
+            pass
+
+        # Fallback for local/offline execution.
+        port = os.getenv("PORT", "5000").strip() or "5000"
+        return f"http://localhost:{port}"
 
     def generate_exact_format_html_form(self, patient_data, selected_tests):
         """Generate the fillable form for entering test results"""
@@ -2251,6 +2268,7 @@ class PathologyTestsForm(TkBase):
     def create_whatsapp_message(self, patient_data, report_url):
         """Create WhatsApp message content with patient messaging CTA"""
         report_url = str(report_url or "").strip()
+        contact_url = f"{self.get_public_base_url()}/contact-hospital"
         return f"""📬 *UJJIVAN HOSPITAL - PATHOLOGY REPORT*
 
 Dear {patient_data.get('name', 'Patient')},
@@ -2281,7 +2299,7 @@ Your pathology test report is ready.
 📞 Call us: {self.hospital_phone}
 📧 Email: {self.hospital_email}
 
-Or visit our website to send a message: http://localhost:5000/contact-hospital
+Or visit our website to send a message: {contact_url}
 
 *Note:* This link is valid for 30 days. Contact hospital for queries.
 
