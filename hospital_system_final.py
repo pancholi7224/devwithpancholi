@@ -24,6 +24,9 @@ import urllib.parse
 import subprocess
 import sys
 import platform
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # PDF generation libraries (optional)
 try:
@@ -68,6 +71,10 @@ class PathologyTestsForm(TkBase):
         self.whatsapp_api_url = "https://graph.facebook.com/v17.0/"
         self.whatsapp_phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
         self.whatsapp_access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
+        
+        # Hospital Contact Configuration
+        self.hospital_phone = os.getenv("HOSPITAL_PHONE", "0120-1234567").strip()
+        self.hospital_email = os.getenv("HOSPITAL_EMAIL", "support@ujjivanhospital.com").strip()
         
         # Test normal ranges dictionary
         self.normal_ranges = {
@@ -116,8 +123,8 @@ class PathologyTestsForm(TkBase):
             "Reticulocyte count": "2-5% of RBC",
             "Haematocrit/PCV": "M=39-49%, F=33-43%",
             "MCV": "76-100 fl",
-            "MCH": "29.5 Â± 2.5 pg",
-            "MCHC": "32.5 Â± 2.5 gm/dl",
+            "MCH": "29.5 ± 2.5 pg",
+            "MCHC": "32.5 ± 2.5 gm/dl",
             "Malaria Parasite": "Negative",
             "BLOOD GROUP": "Rh = Positive/Negative",
             "Bleeding Time": "2-7 Min.",
@@ -198,7 +205,7 @@ class PathologyTestsForm(TkBase):
     def setup_gui(self):
         """Setup the main GUI window"""
         # Main title
-        title_label = tk.Label(self, text="ðŸ¥ UJJIVAN HOSPITAL", 
+        title_label = tk.Label(self, text=" UJJIVAN HOSPITAL", 
                               font=("Arial", 24, "bold"), bg="#f0e1c6", fg="#003366")
         title_label.pack(pady=(20,5))
         
@@ -215,18 +222,19 @@ class PathologyTestsForm(TkBase):
         info_frame.pack(pady=10, padx=20, fill="x")
         
         info_text = """This system will open in your web browser where you can:
-â€¢ Enter patient information
-â€¢ Select pathology tests
-â€¢ Enter test results
-â€¢ Generate PDF reports
-â€¢ Send reports via WhatsApp"""
+ Enter patient information
+ Select pathology tests
+ Enter test results
+ Generate PDF reports
+ Send reports via WhatsApp
+ Patients can send messages to hospital"""
         
         info_label = tk.Label(info_frame, text=info_text, bg="white", 
                              font=("Arial", 11), justify=tk.LEFT, padx=10, pady=10)
         info_label.pack(padx=5, pady=5, fill="x")
         
         # Launch button
-        launch_btn = tk.Button(self, text="ðŸš€ Launch Web Application", 
+        launch_btn = tk.Button(self, text="🚀 Launch Web Application", 
                               fg="white", bg="#28a745", font=("Arial", 16, "bold"), 
                               command=self.launch_web_app, height=2, width=25,
                               cursor="hand2")
@@ -248,14 +256,14 @@ class PathologyTestsForm(TkBase):
         self.status_label.pack(side="left")
         
         # Reports directory link
-        reports_btn = tk.Button(self, text="ðŸ“ Open Reports Folder", 
+        reports_btn = tk.Button(self, text="📁 Open Reports Folder", 
                               command=self.open_reports_folder,
                               bg="#007bff", fg="white", font=("Arial", 10))
-        reports_btn.pack(pady=5)
-        
+        reports_btn.pack(pady=10)
+
     def open_reports_folder(self):
         """Open the reports folder in file explorer"""
-        reports_path = os.path.join(os.getcwd(), 'reports', 'completed_reports')
+        reports_path = os.path.abspath('reports/completed_reports')
         if os.path.exists(reports_path):
             if platform.system() == 'Windows':
                 os.startfile(reports_path)
@@ -267,7 +275,7 @@ class PathologyTestsForm(TkBase):
             messagebox.showerror("Error", "Reports folder not found!")
 
     def init_database(self):
-        """Initialize SQLite database for storing reports"""
+        """Initialize SQLite database for storing reports and messages"""
         try:
             self.conn = sqlite3.connect('pathology_reports.db', check_same_thread=False)
             self.cursor = self.conn.cursor()
@@ -307,6 +315,23 @@ class PathologyTestsForm(TkBase):
                 )
             ''')
             
+            # Create table for patient messages
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS patient_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    patient_name TEXT,
+                    patient_email TEXT,
+                    patient_mobile TEXT,
+                    subject TEXT,
+                    message TEXT,
+                    message_type TEXT,
+                    status TEXT DEFAULT 'unread',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    replied_at TIMESTAMP,
+                    reply_message TEXT
+                )
+            ''')
+            
             self.conn.commit()
             print("Database initialized successfully")
             
@@ -341,13 +366,11 @@ class PathologyTestsForm(TkBase):
                 return html_content
                 
             except Exception as e:
-                return f"Error loading form: {str(e)}", 500
+                return f"Error: {str(e)}", 400
 
-        @self.flask_app.route('/submit-report', methods=['POST', 'OPTIONS'])
-        def handle_form_submission():
-            if request.method == 'OPTIONS':
-                return jsonify({'status': 'ok'}), 200
-                
+        @self.flask_app.route('/submit-report', methods=['POST'])
+        def submit_report():
+            """Handle report submission with WhatsApp integration"""
             try:
                 # Ensure content type is JSON
                 if not request.is_json:
@@ -403,7 +426,7 @@ class PathologyTestsForm(TkBase):
                     if self.generate_pdf(html_content, pdf_filepath):
                         pdf_generated = True
                         pdf_url = f"{base_url}/view-report/{urllib.parse.quote(pdf_filename)}"
-                        print(f"âœ… PDF saved to: {pdf_filepath}")
+                        print(f"✅ PDF saved to: {pdf_filepath}")
                 
                 # Send WhatsApp message with report link
                 whatsapp_success, whatsapp_message = self.send_whatsapp_message(
@@ -433,7 +456,7 @@ class PathologyTestsForm(TkBase):
                 })
                     
             except Exception as e:
-                print(f"âŒ Error in form submission: {e}")
+                print(f"❌ Error in form submission: {e}")
                 import traceback
                 traceback.print_exc()
                 return jsonify({
@@ -466,6 +489,77 @@ class PathologyTestsForm(TkBase):
                     
             except Exception as e:
                 return jsonify({'error': str(e)}), 404
+
+        @self.flask_app.route('/contact-hospital')
+        def contact_hospital():
+            """Serve the patient contact form"""
+            return self.get_contact_form_html()
+
+        @self.flask_app.route('/submit-message', methods=['POST'])
+        def submit_message():
+            """Handle patient message submission"""
+            try:
+                if not request.is_json:
+                    return jsonify({
+                        'success': False,
+                        'message': 'Content-Type must be application/json'
+                    }), 400
+                
+                data = request.get_json()
+                if not data:
+                    return jsonify({
+                        'success': False,
+                        'message': 'No JSON data received'
+                    }), 400
+                
+                # Validate required fields
+                required_fields = ['name', 'email', 'mobile', 'subject', 'message']
+                for field in required_fields:
+                    if not data.get(field):
+                        return jsonify({
+                            'success': False,
+                            'message': f'Missing required field: {field}'
+                        }), 400
+                
+                # Store message in database
+                try:
+                    self.cursor.execute('''
+                        INSERT INTO patient_messages 
+                        (patient_name, patient_email, patient_mobile, subject, message, message_type, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        data.get('name'),
+                        data.get('email'),
+                        data.get('mobile'),
+                        data.get('subject'),
+                        data.get('message'),
+                        data.get('message_type', 'general'),
+                        'unread'
+                    ))
+                    self.conn.commit()
+                    message_id = self.cursor.lastrowid
+                    print(f"✅ Patient message stored: ID {message_id}")
+                except Exception as db_error:
+                    print(f"Database error: {db_error}")
+                    return jsonify({
+                        'success': False,
+                        'message': 'Failed to store message'
+                    }), 500
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Your message has been sent successfully! We will respond within 24 hours.',
+                    'message_id': message_id
+                })
+                
+            except Exception as e:
+                print(f"❌ Error in message submission: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    'success': False,
+                    'message': f'Server Error: {str(e)}'
+                }), 500
 
         @self.flask_app.route('/static/<path:filename>')
         def serve_static(filename):
@@ -556,11 +650,28 @@ class PathologyTestsForm(TkBase):
                     border-radius: 10px;
                     width: 100%;
                     transition: all 0.3s;
+                    margin-bottom: 10px;
                 }}
                 .btn-generate:hover {{
                     background: #218838;
                     transform: translateY(-2px);
                     box-shadow: 0 5px 15px rgba(40,167,69,0.3);
+                }}
+                .btn-contact {{
+                    background: #007bff;
+                    color: white;
+                    font-weight: 600;
+                    padding: 15px 30px;
+                    font-size: 1.2rem;
+                    border: none;
+                    border-radius: 10px;
+                    width: 100%;
+                    transition: all 0.3s;
+                }}
+                .btn-contact:hover {{
+                    background: #0056b3;
+                    transform: translateY(-2px);
+                    box-shadow: 0 5px 15px rgba(0,86,179,0.3);
                 }}
                 .info-box {{
                     background: #e7f3ff;
@@ -573,9 +684,47 @@ class PathologyTestsForm(TkBase):
                     content: " *";
                     color: red;
                 }}
+                .quick-links {{
+                    display: flex;
+                    gap: 10px;
+                    margin-top: 20px;
+                    flex-wrap: wrap;
+                }}
+                .quick-links a {{
+                    flex: 1;
+                    min-width: 150px;
+                    padding: 10px;
+                    text-align: center;
+                    border-radius: 5px;
+                    text-decoration: none;
+                    font-weight: 600;
+                    transition: all 0.3s;
+                }}
+                .quick-links .whatsapp-link {{
+                    background: #25D366;
+                    color: white;
+                }}
+                .quick-links .whatsapp-link:hover {{
+                    background: #1fa857;
+                    transform: translateY(-2px);
+                }}
+                .quick-links .phone-link {{
+                    background: #ffc107;
+                    color: #333;
+                }}
+                .quick-links .phone-link:hover {{
+                    background: #e0a800;
+                    transform: translateY(-2px);
+                }}
                 @media (max-width: 768px) {{
                     .hospital-header h1 {{
                         font-size: 1.8rem;
+                    }}
+                    .quick-links {{
+                        flex-direction: column;
+                    }}
+                    .quick-links a {{
+                        min-width: auto;
                     }}
                 }}
             </style>
@@ -584,23 +733,24 @@ class PathologyTestsForm(TkBase):
             <div class="container">
                 <div class="hospital-card">
                     <div class="hospital-header">
-                        <h1>ðŸ¥ UJJIVAN HOSPITAL</h1>
+                        <h1>🏥 UJJIVAN HOSPITAL</h1>
                         <h3>Pathology Laboratory System</h3>
                         <p class="text-muted">Vidyut Nagar, Gautam Budh Nagar, Uttar Pradesh - 201008</p>
                     </div>
                     
                     <div class="info-box">
-                        <h5>ðŸ“‹ Instructions:</h5>
+                        <h5>📋 Instructions:</h5>
                         <ul class="mb-0">
                             <li>Fill in all patient details (fields marked with * are required)</li>
                             <li>Select the tests to be performed</li>
                             <li>Click "Generate Fillable Form" to enter test results</li>
                             <li>After entering results, submit to generate report and send via WhatsApp</li>
+                            <li>Have questions? Use the "Contact Hospital" button below to send a message</li>
                         </ul>
                     </div>
                     
                     <div class="section-title">
-                        <i class="bi bi-person"></i> Patient Information
+                        👤 Patient Information
                     </div>
                     
                     <div class="row">
@@ -644,7 +794,7 @@ class PathologyTestsForm(TkBase):
                     </div>
                     
                     <div class="section-title">
-                        <i class="bi bi-clipboard-check"></i> Select Tests
+                        ✅ Select Tests
                     </div>
                     
                     <div class="row">
@@ -683,7 +833,11 @@ class PathologyTestsForm(TkBase):
                     </div>
                     
                     <button class="btn-generate" onclick="generateForm()">
-                        ðŸ“‹ Generate Fillable Form
+                        📋 Generate Fillable Form
+                    </button>
+                    
+                    <button class="btn-contact" onclick="goToContactForm()">
+                        💬 Contact Hospital / Send Message
                     </button>
                 </div>
             </div>
@@ -741,7 +895,7 @@ class PathologyTestsForm(TkBase):
                     // Show loading state
                     const btn = document.querySelector('.btn-generate');
                     const originalText = btn.innerHTML;
-                    btn.innerHTML = 'â³ Loading...';
+                    btn.innerHTML = '⏳ Loading...';
                     btn.disabled = true;
 
                     // Redirect to fillable form
@@ -750,11 +904,302 @@ class PathologyTestsForm(TkBase):
                         selected_tests: JSON.stringify(selectedTests)
                     });
                     
-                    window.open('/fillable-form?' + params.toString(), '_blank');
+                    window.location.href = '/fillable-form?' + params.toString();
+                }
+                
+                function goToContactForm() {
+                    window.location.href = '/contact-hospital';
+                }
+            </script>
+        </body>
+        </html>
+        '''
+        return html
+
+    def get_contact_form_html(self):
+        """Return the contact/messaging form HTML for patients"""
+        html = '''
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Contact UJJIVAN Hospital</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {
+                    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    min-height: 100vh;
+                    padding: 20px;
+                }
+                .contact-card {
+                    background: white;
+                    border-radius: 20px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+                    padding: 30px;
+                    max-width: 700px;
+                    margin: 0 auto;
+                }
+                .contact-header {
+                    text-align: center;
+                    margin-bottom: 30px;
+                    padding-bottom: 20px;
+                    border-bottom: 3px solid #003366;
+                }
+                .contact-header h1 {
+                    color: #003366;
+                    font-weight: 700;
+                    font-size: 2rem;
+                    margin-bottom: 10px;
+                }
+                .contact-header p {
+                    color: #666;
+                    font-size: 1.1rem;
+                }
+                .form-label {
+                    font-weight: 600;
+                    color: #495057;
+                }
+                .required-field::after {
+                    content: " *";
+                    color: red;
+                }
+                .btn-submit {
+                    background: #28a745;
+                    color: white;
+                    font-weight: 600;
+                    padding: 12px 30px;
+                    font-size: 1.1rem;
+                    border: none;
+                    border-radius: 10px;
+                    width: 100%;
+                    transition: all 0.3s;
+                    margin-top: 20px;
+                }
+                .btn-submit:hover {
+                    background: #218838;
+                    transform: translateY(-2px);
+                    box-shadow: 0 5px 15px rgba(40,167,69,0.3);
+                }
+                .btn-back {
+                    background: #6c757d;
+                    color: white;
+                    font-weight: 600;
+                    padding: 12px 30px;
+                    font-size: 1rem;
+                    border: none;
+                    border-radius: 10px;
+                    width: 100%;
+                    transition: all 0.3s;
+                    margin-top: 10px;
+                }
+                .btn-back:hover {
+                    background: #5a6268;
+                    transform: translateY(-2px);
+                }
+                .info-box {
+                    background: #e7f3ff;
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin-bottom: 20px;
+                    border: 1px solid #b8daff;
+                }
+                .success-message {
+                    display: none;
+                    background: #d4edda;
+                    border: 1px solid #c3e6cb;
+                    color: #155724;
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                }
+                .error-message {
+                    display: none;
+                    background: #f8d7da;
+                    border: 1px solid #f5c6cb;
+                    color: #721c24;
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                }
+                .message-type-group {
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                }
+                textarea {
+                    resize: vertical;
+                    min-height: 150px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="contact-card">
+                    <div class="contact-header">
+                        <h1>💬 Contact UJJIVAN Hospital</h1>
+                        <p>Send us a message and we'll respond within 24 hours</p>
+                    </div>
                     
-                    // Reset button
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
+                    <div id="successMessage" class="success-message">
+                        ✅ Your message has been sent successfully! We will respond within 24 hours.
+                    </div>
+                    
+                    <div id="errorMessage" class="error-message">
+                        ❌ <span id="errorText"></span>
+                    </div>
+                    
+                    <div class="info-box">
+                        <h5>📞 Quick Contact:</h5>
+                        <p><strong>Phone:</strong> 0120-1234567</p>
+                        <p><strong>Email:</strong> support@ujjivanhospital.com</p>
+                        <p><strong>WhatsApp:</strong> Reply to the report message you received</p>
+                    </div>
+                    
+                    <form id="contactForm">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label required-field">Full Name</label>
+                                <input type="text" class="form-control" id="patientName" placeholder="Your full name" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label required-field">Email</label>
+                                <input type="email" class="form-control" id="patientEmail" placeholder="Your email" required>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label required-field">Mobile Number</label>
+                            <input type="tel" class="form-control" id="patientMobile" placeholder="10 digit mobile number" required>
+                        </div>
+                        
+                        <div class="message-type-group">
+                            <label class="form-label required-field">Message Type</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="messageType" id="typeGeneral" value="general" checked>
+                                <label class="form-check-label" for="typeGeneral">
+                                    General Inquiry
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="messageType" id="typeReport" value="report_query">
+                                <label class="form-check-label" for="typeReport">
+                                    Report Query / Clarification
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="messageType" id="typeComplaint" value="complaint">
+                                <label class="form-check-label" for="typeComplaint">
+                                    Complaint / Feedback
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="messageType" id="typeAppointment" value="appointment">
+                                <label class="form-check-label" for="typeAppointment">
+                                    Appointment Request
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label required-field">Subject</label>
+                            <input type="text" class="form-control" id="messageSubject" placeholder="What is this about?" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label required-field">Message</label>
+                            <textarea class="form-control" id="messageContent" placeholder="Please describe your message..." required></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn-submit">
+                            📤 Send Message
+                        </button>
+                        
+                        <button type="button" class="btn-back" onclick="goHome()">
+                            ← Back to Home
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <script>
+                document.getElementById('contactForm').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const name = document.getElementById('patientName').value;
+                    const email = document.getElementById('patientEmail').value;
+                    const mobile = document.getElementById('patientMobile').value;
+                    const messageType = document.querySelector('input[name="messageType"]:checked').value;
+                    const subject = document.getElementById('messageSubject').value;
+                    const message = document.getElementById('messageContent').value;
+                    
+                    // Validate mobile
+                    const mobileRegex = /^[0-9]{10}$/;
+                    if (!mobileRegex.test(mobile)) {
+                        showError('Please enter a valid 10-digit mobile number');
+                        return;
+                    }
+                    
+                    const submitBtn = document.querySelector('.btn-submit');
+                    const originalText = submitBtn.innerHTML;
+                    submitBtn.innerHTML = '⏳ Sending...';
+                    submitBtn.disabled = true;
+                    
+                    try {
+                        const response = await fetch('/submit-message', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                name: name,
+                                email: email,
+                                mobile: mobile,
+                                subject: subject,
+                                message: message,
+                                message_type: messageType
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            showSuccess(data.message);
+                            document.getElementById('contactForm').reset();
+                            setTimeout(() => {
+                                window.location.href = '/';
+                            }, 3000);
+                        } else {
+                            showError(data.message || 'Failed to send message');
+                        }
+                    } catch (error) {
+                        showError('Error: ' + error.message);
+                    } finally {
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                    }
+                });
+                
+                function showSuccess(message) {
+                    const successDiv = document.getElementById('successMessage');
+                    const errorDiv = document.getElementById('errorMessage');
+                    errorDiv.style.display = 'none';
+                    successDiv.textContent = message;
+                    successDiv.style.display = 'block';
+                }
+                
+                function showError(message) {
+                    const errorDiv = document.getElementById('errorMessage');
+                    const successDiv = document.getElementById('successMessage');
+                    successDiv.style.display = 'none';
+                    document.getElementById('errorText').textContent = message;
+                    errorDiv.style.display = 'block';
+                }
+                
+                function goHome() {
+                    window.location.href = '/';
                 }
             </script>
         </body>
@@ -763,25 +1208,14 @@ class PathologyTestsForm(TkBase):
         return html
 
     def get_public_base_url(self):
-        """Resolve the external/public base URL used in patient-facing links."""
-        configured_base = os.getenv("PUBLIC_BASE_URL", "").strip()
-        if configured_base:
-            return configured_base.rstrip("/")
-
-        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip()
-        forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",")[0].strip()
-
-        if forwarded_host:
-            scheme = forwarded_proto or request.scheme or "https"
-            return f"{scheme}://{forwarded_host}".rstrip("/")
-
-        return request.host_url.rstrip("/")
+        """Get the public base URL for the application"""
+        # For local development
+        return "http://localhost:5000"
 
     def generate_exact_format_html_form(self, patient_data, selected_tests):
-        """Generate HTML form for entering test results"""
-        serial_no = 1
+        """Generate the fillable form for entering test results"""
+        today_date = datetime.now().strftime('%Y-%m-%d')
         
-        # Start building the HTML
         html = f'''
         <!DOCTYPE html>
         <html lang="en">
@@ -792,348 +1226,279 @@ class PathologyTestsForm(TkBase):
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
             <style>
                 body {{
-                    background: #f8f9fa;
-                    font-family: 'Times New Roman', serif;
+                    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    min-height: 100vh;
                     padding: 20px;
                 }}
-                .report-container {{
+                .form-card {{
                     background: white;
-                    border: 2px solid #003366;
-                    border-radius: 15px;
+                    border-radius: 20px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
                     padding: 30px;
-                    max-width: 1200px;
-                    margin: 0 auto;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+                    margin-bottom: 20px;
                 }}
-                .header {{
+                .form-header {{
                     text-align: center;
+                    margin-bottom: 30px;
+                    padding-bottom: 20px;
                     border-bottom: 3px solid #003366;
-                    margin-bottom: 25px;
-                    padding-bottom: 15px;
                 }}
-                .header h2 {{
+                .form-header h1 {{
                     color: #003366;
-                    font-weight: bold;
+                    font-weight: 700;
                     font-size: 2rem;
-                    margin-bottom: 5px;
-                }}
-                .header p {{
-                    color: #666;
-                    margin-bottom: 5px;
+                    margin-bottom: 10px;
                 }}
                 .patient-info {{
-                    background: #f0f7ff;
-                    border: 1px solid #003366;
-                    border-radius: 10px;
+                    background: #f8f9fa;
                     padding: 15px;
-                    margin-bottom: 25px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                    border-left: 4px solid #003366;
                 }}
                 .patient-info p {{
-                    margin-bottom: 8px;
-                    font-size: 1rem;
+                    margin: 5px 0;
+                    font-size: 0.95rem;
                 }}
                 .section-title {{
                     background: #003366;
                     color: white;
-                    padding: 10px 15px;
-                    border-radius: 5px;
+                    padding: 15px 20px;
+                    border-radius: 10px;
                     margin: 20px 0 15px 0;
-                    font-weight: bold;
-                    font-size: 1.2rem;
-                }}
-                table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-bottom: 20px;
-                }}
-                th, td {{
-                    border: 1px solid #003366;
-                    padding: 10px;
-                    vertical-align: middle;
-                }}
-                th {{
-                    background: #e8f0ff;
+                    font-size: 1.1rem;
                     font-weight: 600;
-                    color: #003366;
-                    text-align: center;
                 }}
-                input.result {{
-                    width: 100%;
-                    border: none;
-                    border-bottom: 2px solid #ccc;
-                    padding: 5px;
-                    font-size: 1rem;
-                    transition: border-color 0.3s;
+                .form-label {{
+                    font-weight: 600;
+                    color: #495057;
                 }}
-                input.result:focus {{
-                    outline: none;
-                    border-bottom-color: #28a745;
+                .form-control {{
+                    border-radius: 5px;
+                    border: 1px solid #ddd;
                 }}
-                .normal-range {{
-                    font-size: 0.9rem;
-                    color: #666;
-                    font-style: italic;
-                }}
-                .footer {{
-                    margin-top: 40px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-end;
-                }}
-                .signature {{
-                    text-align: right;
-                }}
-                .signature-line {{
-                    width: 200px;
-                    border-bottom: 2px solid #000;
-                    margin-top: 10px;
+                .form-control:focus {{
+                    border-color: #003366;
+                    box-shadow: 0 0 0 0.2rem rgba(0, 51, 102, 0.25);
                 }}
                 .btn-submit {{
                     background: #28a745;
                     color: white;
-                    font-weight: bold;
-                    padding: 15px 40px;
-                    font-size: 1.2rem;
+                    font-weight: 600;
+                    padding: 15px 30px;
+                    font-size: 1.1rem;
                     border: none;
                     border-radius: 10px;
+                    width: 100%;
                     transition: all 0.3s;
+                    margin-top: 20px;
                 }}
                 .btn-submit:hover {{
                     background: #218838;
                     transform: translateY(-2px);
                     box-shadow: 0 5px 15px rgba(40,167,69,0.3);
                 }}
-                .btn-clear {{
+                .btn-back {{
                     background: #6c757d;
                     color: white;
-                    font-weight: bold;
-                    padding: 10px 30px;
+                    font-weight: 600;
+                    padding: 12px 30px;
+                    font-size: 1rem;
                     border: none;
-                    border-radius: 5px;
+                    border-radius: 10px;
+                    width: 100%;
+                    transition: all 0.3s;
+                    margin-top: 10px;
                 }}
-                .abnormal-value {{
-                    color: #dc3545;
-                    font-weight: bold;
+                .btn-back:hover {{
+                    background: #5a6268;
+                    transform: translateY(-2px);
                 }}
-                @media print {{
-                    body {{
-                        background: white;
-                        padding: 0;
-                    }}
-                    .report-container {{
-                        border: 1px solid #000;
-                        box-shadow: none;
-                        padding: 20px;
-                    }}
-                    .btn-submit, .btn-clear {{
-                        display: none;
-                    }}
+                .normal-range {{
+                    font-size: 0.85rem;
+                    color: #666;
+                    font-style: italic;
+                }}
+                .success-message {{
+                    display: none;
+                    background: #d4edda;
+                    border: 1px solid #c3e6cb;
+                    color: #155724;
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                }}
+                .error-message {{
+                    display: none;
+                    background: #f8d7da;
+                    border: 1px solid #f5c6cb;
+                    color: #721c24;
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
                 }}
             </style>
         </head>
         <body>
-            <div class="report-container">
-                <div class="header">
-                    <h2>ðŸ¥ UJJIVAN HOSPITAL</h2>
-                    <p>Pathology Laboratory â€¢ Vidyut Nagar, Gautam Budh Nagar, UP - 201008</p>
-                    <p>ðŸ“ž Hospital: 0120-1234567 | ðŸ“§ Email: pathology@ujjivanhospital.com</p>
-                </div>
-                
-                <div class="patient-info">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <p><strong>Patient Name:</strong> {patient_data['name']}</p>
-                            <p><strong>Age/Sex:</strong> {patient_data['age']} / {patient_data['gender']}</p>
-                            <p><strong>Mobile:</strong> {patient_data['mobile']}</p>
-                        </div>
-                        <div class="col-md-6">
-                            <p><strong>OPD No:</strong> {patient_data['opd_no'] or 'N/A'}</p>
-                            <p><strong>Doctor:</strong> {patient_data['doctor'] or 'N/A'}</p>
-                            <p><strong>Sample Date:</strong> {patient_data['sample_date']}</p>
-                        </div>
+            <div class="container">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h1>📊 Enter Test Results</h1>
+                        <p>Please enter the test results for the selected tests</p>
                     </div>
-                </div>
+                    
+                    <div id="successMessage" class="success-message">
+                        ✅ Report submitted successfully!
+                    </div>
+                    
+                    <div id="errorMessage" class="error-message">
+                        ❌ <span id="errorText"></span>
+                    </div>
+                    
+                    <div class="patient-info">
+                        <h6 style="color: #003366; font-weight: 600; margin-bottom: 10px;">Patient Information</h6>
+                        <p><strong>Name:</strong> {patient_data.get('name', '')}</p>
+                        <p><strong>Age/Gender:</strong> {patient_data.get('age', '')}/{patient_data.get('gender', '')}</p>
+                        <p><strong>Mobile:</strong> {patient_data.get('mobile', '')}</p>
+                        <p><strong>Doctor:</strong> {patient_data.get('doctor', 'N/A')}</p>
+                        <p><strong>OPD No:</strong> {patient_data.get('opd_no', 'N/A')}</p>
+                    </div>
+                    
+                    <form id="resultsForm">
         '''
         
         # Group tests by category
         test_categories = {}
         for category, tests in self.tests.items():
-            category_tests = [t for t in tests if t in selected_tests]
-            if category_tests:
-                test_categories[category] = category_tests
+            test_categories[category] = []
         
-        # Add each category
+        # Add selected tests to categories
+        for test_name in selected_tests:
+            category_found = False
+            for category, tests in self.tests.items():
+                if test_name in tests:
+                    test_categories[category].append(test_name)
+                    category_found = True
+                    break
+            if not category_found:
+                test_categories.get("OTHER TESTS", []).append(test_name)
+        
+        # Generate form fields for each test
         for category, tests in test_categories.items():
-            html += f'''
-                <div class="section-title">{category}</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 5%">S.No</th>
-                            <th style="width: 40%">Test Description</th>
-                            <th style="width: 25%">Normal Range</th>
-                            <th style="width: 30%">Result Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            '''
-            
-            for test in tests:
-                normal_range = self.normal_ranges.get(test, "Not specified")
-                test_id = test.replace(' ', '_').replace('-', '_').replace('/', '_').replace("'", "").replace(",", "")
-                
+            if tests:
                 html += f'''
-                        <tr>
-                            <td class="text-center">{serial_no}</td>
-                            <td><strong>{test}</strong></td>
-                            <td class="normal-range">{normal_range}</td>
-                            <td>
-                                <input type="text" class="result" 
-                                       placeholder="Enter value" 
-                                       name="{test}" 
-                                       id="{test_id}"
-                                       data-test="{test}"
-                                       data-normal="{normal_range}"
-                                       onchange="checkAbnormal(this)">
-                            </td>
-                        </tr>
+                        <div class="section-title">{category}</div>
+                        <div class="row">
                 '''
-                serial_no += 1
-            
-            html += '''
-                    </tbody>
-                </table>
-            '''
-        
-        html += f'''
-                <div class="footer">
-                    <div>
-                        <p><strong>Test Date:</strong> {patient_data['sample_date']}</p>
-                        <p><strong>Report Date:</strong> {datetime.now().strftime('%d-%m-%Y')}</p>
-                    </div>
-                    <div class="signature">
-                        <p><strong>Signature</strong></p>
-                        <div class="signature-line"></div>
-                        <p><small>(Pathologist)</small></p>
-                    </div>
-                </div>
                 
-                <div class="row mt-4">
-                    <div class="col-md-12 text-center">
-                        <button class="btn-submit" onclick="submitForm()">
-                            âœ… Submit & Send WhatsApp Report
+                for test_name in tests:
+                    normal_range = self.normal_ranges.get(test_name, "Not specified")
+                    test_id = f"test_{test_name.replace(' ', '_').replace('-', '_').replace('/', '_')}"
+                    
+                    html += f'''
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label" for="{test_id}">
+                                    {test_name}
+                                </label>
+                                <input type="text" class="form-control" id="{test_id}" 
+                                       name="{test_name}" placeholder="Enter result">
+                                <small class="normal-range">Normal: {normal_range}</small>
+                            </div>
+                    '''
+                
+                html += '''
+                        </div>
+                '''
+        
+        # Store patient data as hidden fields
+        html += f'''
+                        <input type="hidden" id="patientData" value='{json.dumps(patient_data)}'>
+                        
+                        <button type="submit" class="btn-submit">
+                            ✅ Submit Report & Send via WhatsApp
                         </button>
-                    </div>
+                        
+                        <button type="button" class="btn-back" onclick="goHome()">
+                            ← Back to Home
+                        </button>
+                    </form>
                 </div>
             </div>
             
             <script>
-                function checkAbnormal(input) {{
-                    const value = input.value.trim();
-                    const testName = input.getAttribute('data-test');
-                    const normalRange = input.getAttribute('data-normal');
+                document.getElementById('resultsForm').addEventListener('submit', async function(e) {{
+                    e.preventDefault();
                     
-                    if (value) {{
-                        // Simple abnormal detection based on keywords
-                        const lowerValue = value.toLowerCase();
-                        if (lowerValue.includes('positive') || 
-                            lowerValue.includes('reactive') || 
-                            lowerValue.includes('abnormal') ||
-                            lowerValue.includes('high') ||
-                            lowerValue.includes('low')) {{
-                            input.style.borderBottom = '2px solid #dc3545';
-                            input.style.color = '#dc3545';
-                        }} else {{
-                            input.style.borderBottom = '2px solid #28a745';
-                            input.style.color = '#000';
+                    const patientData = JSON.parse(document.getElementById('patientData').value);
+                    const testResults = {{}};
+                    
+                    // Collect all test results
+                    const inputs = document.querySelectorAll('#resultsForm input[name]');
+                    inputs.forEach(input => {{
+                        if (input.value.trim()) {{
+                            testResults[input.name] = input.value.trim();
                         }}
+                    }});
+                    
+                    if (Object.keys(testResults).length === 0) {{
+                        showError('Please enter at least one test result');
+                        return;
                     }}
+                    
+                    const submitBtn = document.querySelector('.btn-submit');
+                    const originalText = submitBtn.innerHTML;
+                    submitBtn.innerHTML = '⏳ Submitting...';
+                    submitBtn.disabled = true;
+                    
+                    try {{
+                        const response = await fetch('/submit-report', {{
+                            method: 'POST',
+                            headers: {{
+                                'Content-Type': 'application/json'
+                            }},
+                            body: JSON.stringify({{
+                                patient_data: patientData,
+                                test_results: testResults
+                            }})
+                        }});
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {{
+                            showSuccess('Report submitted successfully!\\n\\n' + data.whatsapp_message + '\\n\\nRedirecting...');
+                            setTimeout(() => {{
+                                window.location.href = '/';
+                            }}, 3000);
+                        }} else {{
+                            showError(data.message || 'Failed to submit report');
+                        }}
+                    }} catch (error) {{
+                        showError('Error: ' + error.message);
+                    }} finally {{
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                    }}
+                }});
+                
+                function showSuccess(message) {{
+                    const successDiv = document.getElementById('successMessage');
+                    const errorDiv = document.getElementById('errorMessage');
+                    errorDiv.style.display = 'none';
+                    successDiv.textContent = message;
+                    successDiv.style.display = 'block';
                 }}
                 
-                function submitForm() {{
-                    const inputs = document.querySelectorAll('input.result');
-                    const testResults = {{}};
-                    let hasValues = false;
-                    
-                    inputs.forEach(input => {{
-                        if (input.value.trim() !== '') {{
-                            testResults[input.name] = input.value;
-                            hasValues = true;
-                        }}
-                    }});
-                    
-                    if (!hasValues) {{
-                        alert('Please enter at least one test result.');
-                        return;
-                    }}
-                    
-                    // Confirm submission
-                    if (!confirm('Are you sure you want to submit this report? It will be sent to the patient via WhatsApp.')) {{
-                        return;
-                    }}
-                    
-                    const submissionData = {{
-                        patient_data: {{
-                            name: "{patient_data['name']}",
-                            age: "{patient_data['age']}",
-                            gender: "{patient_data['gender']}",
-                            mobile: "{patient_data['mobile']}",
-                            doctor: "{patient_data['doctor']}",
-                            opd_no: "{patient_data['opd_no']}",
-                            sample_date: "{patient_data['sample_date']}"
-                        }},
-                        test_results: testResults
-                    }};
-                    
-                    // Show loading state
-                    const btn = document.querySelector('.btn-submit');
-                    const originalText = btn.innerHTML;
-                    btn.innerHTML = 'â³ Submitting...';
-                    btn.disabled = true;
-                    
-                    fetch('/submit-report', {{
-                        method: 'POST',
-                        headers: {{
-                            'Content-Type': 'application/json',
-                        }},
-                        body: JSON.stringify(submissionData)
-                    }})
-                    .then(response => {{
-                        if (!response.ok) {{
-                            return response.json().then(err => {{
-                                throw new Error(err.message || 'Server error');
-                            }}).catch(() => {{
-                                throw new Error('HTTP error ' + response.status);
-                            }});
-                        }}
-                        return response.json();
-                    }})
-                    .then(data => {{
-                        if (data.success) {{
-                            alert(`âœ… Report submitted successfully!\\n\\n${{data.message}}\\n\\nWhatsApp Status: ${{data.whatsapp_message}}\\n\\nThe patient can view their report at:\\n${{data.pdf_url}}`);
-                            
-                            // Open report in new tab
-                            if (data.pdf_url) {{
-                                window.open(data.pdf_url, '_blank');
-                            }}
-                            
-                            // Ask if user wants to print
-                            if (confirm('Do you want to print the report?')) {{
-                                window.print();
-                            }}
-                        }} else {{
-                            alert('âŒ Error: ' + data.message);
-                        }}
-                    }})
-                    .catch(error => {{
-                        alert('âŒ Error submitting form: ' + error);
-                        console.error('Error:', error);
-                    }})
-                    .finally(() => {{
-                        // Reset button
-                        btn.innerHTML = originalText;
-                        btn.disabled = false;
-                    }});
+                function showError(message) {{
+                    const errorDiv = document.getElementById('errorMessage');
+                    const successDiv = document.getElementById('successMessage');
+                    successDiv.style.display = 'none';
+                    document.getElementById('errorText').textContent = message;
+                    errorDiv.style.display = 'block';
+                }}
+                
+                function goHome() {{
+                    window.location.href = '/';
                 }}
             </script>
         </body>
@@ -1142,9 +1507,8 @@ class PathologyTestsForm(TkBase):
         return html
 
     def generate_pdf_html(self, patient_data, test_results):
-        """Generate HTML for PDF with filled results"""
-        html_content = f'''
-        <!DOCTYPE html>
+        """Generate HTML content for PDF report"""
+        html_content = f'''<!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
@@ -1354,7 +1718,7 @@ class PathologyTestsForm(TkBase):
             if WEASYPRINT_AVAILABLE:
                 try:
                     HTML(string=html_content, encoding='utf-8').write_pdf(output_path)
-                    print(f"âœ… PDF generated with WeasyPrint: {output_path}")
+                    print(f"✅ PDF generated with WeasyPrint: {output_path}")
                     return True
                 except Exception as e:
                     print(f"WeasyPrint failed: {e}")
@@ -1392,23 +1756,22 @@ class PathologyTestsForm(TkBase):
                     else:
                         pdfkit.from_string(html_content, output_path, options=options)
                     
-                    print(f"âœ… PDF generated with pdfkit: {output_path}")
+                    print(f"✅ PDF generated with pdfkit: {output_path}")
                     return True
                     
                 except Exception as e:
                     print(f"pdfkit failed: {e}")
             
-            print("âš ï¸ No PDF generation method available. Using HTML report.")
+            print(f"⚠️ PDF generation not available. Saving as HTML instead.")
             return False
             
         except Exception as e:
-            print(f"âŒ Error generating PDF: {e}")
+            print(f"PDF generation error: {e}")
             return False
 
     def store_completed_report(self, patient_data, test_results, report_path, whatsapp_success, whatsapp_message):
         """Store completed report in database"""
         try:
-            test_results_json = json.dumps(test_results)
             whatsapp_status = "sent" if whatsapp_success else "failed"
             
             self.cursor.execute('''
@@ -1416,38 +1779,39 @@ class PathologyTestsForm(TkBase):
                 (patient_name, patient_age, patient_gender, patient_mobile, doctor_name, opd_no, sample_date, test_results, pdf_path, whatsapp_status, whatsapp_error)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                patient_data.get('name', ''),
-                patient_data.get('age', ''),
-                patient_data.get('gender', ''),
-                patient_data.get('mobile', ''),
-                patient_data.get('doctor', ''),
-                patient_data.get('opd_no', ''),
-                patient_data.get('sample_date', ''),
-                test_results_json,
+                patient_data.get('name'),
+                patient_data.get('age'),
+                patient_data.get('gender'),
+                patient_data.get('mobile'),
+                patient_data.get('doctor'),
+                patient_data.get('opd_no'),
+                patient_data.get('sample_date'),
+                json.dumps(test_results),
                 report_path,
                 whatsapp_status,
                 whatsapp_message
             ))
             
             self.conn.commit()
-            print(f"âœ… Report stored in database. WhatsApp: {whatsapp_status}")
+            print(f"✅ Report stored in database. WhatsApp: {whatsapp_status}")
             return True
             
         except Exception as e:
-            print(f"âŒ Error storing report: {e}")
+            print(f"Error storing report: {e}")
             return False
 
     def validate_mobile_number(self, mobile_number):
         """Validate and format mobile number"""
         try:
             # Remove any non-digit characters
-            cleaned = re.sub(r'\D', '', str(mobile_number))
+            mobile_clean = re.sub(r'\D', '', str(mobile_number))
             
-            # Check if it's a valid Indian mobile number
-            if len(cleaned) == 10 and cleaned[0] in ['6', '7', '8', '9']:
-                return f"91{cleaned}", None
-            elif len(cleaned) == 12 and cleaned.startswith('91'):
-                return cleaned, None
+            # Check if it's 10 digits (Indian format)
+            if len(mobile_clean) == 10:
+                return mobile_clean, None
+            # Check if it's 12 digits (with country code 91)
+            elif len(mobile_clean) == 12 and mobile_clean.startswith('91'):
+                return mobile_clean, None
             else:
                 return None, "Invalid mobile number format. Please enter a valid 10-digit Indian mobile number."
                 
@@ -1555,7 +1919,7 @@ class PathologyTestsForm(TkBase):
         dialog.grab_set()
         
         # Title
-        tk.Label(dialog, text="ðŸ“± WhatsApp Message", font=("Arial", 16, "bold"), 
+        tk.Label(dialog, text="📱 WhatsApp Message", font=("Arial", 16, "bold"), 
                 bg="white", fg="#003366").pack(pady=10)
         
         # Instructions
@@ -1585,20 +1949,20 @@ class PathologyTestsForm(TkBase):
         def copy_message():
             dialog.clipboard_clear()
             dialog.clipboard_append(message)
-            tk.Label(button_frame, text="âœ“ Copied!", fg="green", bg="white").pack(side="left", padx=5)
+            tk.Label(button_frame, text="✓ Copied!", fg="green", bg="white").pack(side="left", padx=5)
         
         def open_whatsapp():
             encoded_message = urllib.parse.quote(message)
             whatsapp_url = f"https://web.whatsapp.com/send?text={encoded_message}"
             webbrowser.open(whatsapp_url)
         
-        tk.Button(button_frame, text="ðŸ“‹ Copy Message", command=copy_message,
+        tk.Button(button_frame, text="📋 Copy Message", command=copy_message,
                  bg="#007bff", fg="white", font=("Arial", 10)).pack(side="left", padx=5)
         
-        tk.Button(button_frame, text="ðŸŒ Open WhatsApp Web", command=open_whatsapp,
+        tk.Button(button_frame, text="🌐 Open WhatsApp Web", command=open_whatsapp,
                  bg="#25D366", fg="white", font=("Arial", 10)).pack(side="left", padx=5)
         
-        tk.Button(button_frame, text="âœ… Close", command=dialog.destroy,
+        tk.Button(button_frame, text="✅ Close", command=dialog.destroy,
                  bg="#6c757d", fg="white", font=("Arial", 10)).pack(side="left", padx=5)
         
         # Report URL
@@ -1618,27 +1982,27 @@ class PathologyTestsForm(TkBase):
             dialog.clipboard_append(report_url)
             tk.Label(url_frame, text="URL copied!", fg="green", bg="white").pack()
         
-        tk.Button(url_frame, text="ðŸ“‹ Copy URL", command=copy_url,
+        tk.Button(url_frame, text="📋 Copy URL", command=copy_url,
                  bg="#28a745", fg="white", font=("Arial", 9)).pack(pady=5)
 
     def create_whatsapp_message(self, patient_data, report_url):
-        """Create WhatsApp message content"""
+        """Create WhatsApp message content with patient messaging CTA"""
         report_url = str(report_url or "").strip()
-        return f"""ðŸ”¬ *UJJIVAN HOSPITAL - PATHOLOGY REPORT*
+        return f"""📬 *UJJIVAN HOSPITAL - PATHOLOGY REPORT*
 
 Dear {patient_data.get('name', 'Patient')},
 
 Your pathology test report is ready.
 
 *Patient Details:*
-â€¢ Name: {patient_data.get('name', '')}
-â€¢ Age: {patient_data.get('age', '')}
-â€¢ Gender: {patient_data.get('gender', '')}
-â€¢ Doctor: {patient_data.get('doctor', 'N/A')}
-â€¢ Sample Date: {patient_data.get('sample_date', '')}
-â€¢ OPD No: {patient_data.get('opd_no', 'N/A')}
+• Name: {patient_data.get('name', '')}
+• Age: {patient_data.get('age', '')}
+• Gender: {patient_data.get('gender', '')}
+• Doctor: {patient_data.get('doctor', 'N/A')}
+• Sample Date: {patient_data.get('sample_date', '')}
+• OPD No: {patient_data.get('opd_no', 'N/A')}
 
-ðŸ“„ *View Your Report Online:*
+📄 *View Your Report Online:*
 {report_url}
 
 *Instructions:*
@@ -1649,11 +2013,17 @@ Your pathology test report is ready.
 *Report ID:* {patient_data.get('opd_no', 'N/A')}
 *Generated on:* {datetime.now().strftime('%d-%m-%Y %I:%M %p')}
 
+*Have Questions?*
+💬 Reply to this message on WhatsApp
+📞 Call us: {self.hospital_phone}
+📧 Email: {self.hospital_email}
+
+Or visit our website to send a message: http://localhost:5000/contact-hospital
+
 *Note:* This link is valid for 30 days. Contact hospital for queries.
 
 Thank you for choosing UJJIVAN Hospital.
-ðŸ“ Vidyut Nagar, Gautam Budh Nagar, UP - 201008
-ðŸ“ž Hospital: 0120-1234567
+🏥 Vidyut Nagar, Gautam Budh Nagar, UP - 201008
 """
 
     def start_flask_server(self):
@@ -1661,17 +2031,18 @@ Thank you for choosing UJJIVAN Hospital.
         def run_flask():
             try:
                 print("="*50)
-                print("ðŸš€ Starting UJJIVAN Hospital Pathology System")
+                print("🚀 Starting UJJIVAN Hospital Pathology System")
                 print("="*50)
-                print(f"ðŸ“… Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
-                print(f"ðŸ“ Reports directory: {os.path.abspath('reports/completed_reports')}")
-                print(f"ðŸŒ Web interface: http://localhost:5000")
-                print(f"ðŸ“± WhatsApp integration: {'Enabled' if self.whatsapp_enabled else 'Disabled'}")
+                print(f"📅 Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
+                print(f"📁 Reports directory: {os.path.abspath('reports/completed_reports')}")
+                print(f"🌐 Web interface: http://localhost:5000")
+                print(f"📱 WhatsApp integration: {'Enabled' if self.whatsapp_enabled else 'Disabled'}")
+                print(f"💬 Patient Messaging: Enabled")
                 print("="*50)
                 
                 self.flask_app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False, threaded=True)
             except Exception as e:
-                print(f"âŒ Flask server error: {e}")
+                print(f"❌ Flask server error: {e}")
                 if self.enable_gui and hasattr(self, "status_label"):
                     self.status_label.config(text=f"Server error: {e}")
         
@@ -1686,11 +2057,11 @@ Thank you for choosing UJJIVAN Hospital.
         flask_url = "http://localhost:5000/"
         webbrowser.open(flask_url)
         
-        self.status_label.config(text="âœ… Web application opened in browser!")
+        self.status_label.config(text="✅ Web application opened in browser!")
         messagebox.showinfo("Success", 
             f"Web application opened in browser!\n\n"
             f"If it doesn't load automatically, visit:\n{flask_url}\n\n"
-            f"ðŸ“ Reports are saved in:\n{os.path.abspath('reports/completed_reports')}")
+            f"📁 Reports are saved in:\n{os.path.abspath('reports/completed_reports')}")
 
 if __name__ == "__main__":
     app = PathologyTestsForm(enable_gui=True, auto_start_server=True)
@@ -1708,4 +2079,3 @@ if __name__ == "__main__":
 else:
     # Render / Gunicorn entrypoint: run Flask routes without desktop GUI.
     app = PathologyTestsForm(enable_gui=False, auto_start_server=False).flask_app
-
