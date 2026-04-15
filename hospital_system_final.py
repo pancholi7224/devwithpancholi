@@ -19,7 +19,6 @@ import requests
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask import render_template_string
 import base64
-import tempfile
 import urllib.parse
 import subprocess
 import sys
@@ -27,6 +26,9 @@ import platform
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+DATA_DIR = os.getenv("DATA_DIR", BASE_DIR)
 
 # PDF generation libraries (optional)
 try:
@@ -56,11 +58,15 @@ class PathologyTestsForm(TkBase):
             self.geometry("600x450")
             self.configure(bg="#f0e1c6")
         
+        self.root_dir = BASE_DIR
+        self.data_dir = DATA_DIR
+        self.reports_dir = os.path.join(self.data_dir, 'reports', 'completed_reports')
+        self.temp_dir = os.path.join(self.data_dir, 'reports', 'temp')
+        self.db_path = os.path.join(self.data_dir, 'pathology_reports.db')
+
         # Create necessary directories
-        # NOTE: On Vercel serverless deployments, filesystem writes are ephemeral.
-        # Report files may be created during runtime but will not persist across cold starts.
-        os.makedirs('reports/completed_reports', exist_ok=True)
-        os.makedirs('reports/temp', exist_ok=True)
+        os.makedirs(self.reports_dir, exist_ok=True)
+        os.makedirs(self.temp_dir, exist_ok=True)
         
         # Initialize database
         self.init_database()
@@ -296,7 +302,7 @@ class PathologyTestsForm(TkBase):
 
     def open_reports_folder(self):
         """Open the reports folder in file explorer"""
-        reports_path = os.path.abspath('reports/completed_reports')
+        reports_path = os.path.abspath(self.reports_dir)
         if os.path.exists(reports_path):
             if platform.system() == 'Windows':
                 os.startfile(reports_path)
@@ -310,7 +316,7 @@ class PathologyTestsForm(TkBase):
     def init_database(self):
         """Initialize SQLite database for storing reports and messages"""
         try:
-            self.conn = sqlite3.connect('pathology_reports.db', check_same_thread=False)
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.cursor = self.conn.cursor()
             
             # Create table for form submissions
@@ -462,7 +468,7 @@ class PathologyTestsForm(TkBase):
                 # Generate HTML report
                 html_content = self.generate_pdf_html(patient_data, test_results)
                 html_filename = f"Pathology_Report_{patient_name_clean}_{timestamp}.html"
-                html_filepath = os.path.join('reports', 'completed_reports', html_filename)
+                html_filepath = os.path.join(self.reports_dir, html_filename)
                 
                 with open(html_filepath, 'w', encoding='utf-8') as f:
                     f.write(html_content)
@@ -474,7 +480,7 @@ class PathologyTestsForm(TkBase):
                 
                 if PDFKIT_AVAILABLE or WEASYPRINT_AVAILABLE:
                     pdf_filename = f"Pathology_Report_{patient_name_clean}_{timestamp}.pdf"
-                    pdf_filepath = os.path.join('reports', 'completed_reports', pdf_filename)
+                    pdf_filepath = os.path.join(self.reports_dir, pdf_filename)
                     
                     if self.generate_pdf(html_content, pdf_filepath):
                         pdf_generated = True
@@ -556,7 +562,7 @@ class PathologyTestsForm(TkBase):
                 if '..' in filename or filename.startswith('/'):
                     return jsonify({'error': 'Invalid filename'}), 400
                     
-                directory = os.path.join(os.getcwd(), 'reports', 'completed_reports')
+                directory = os.path.abspath(self.reports_dir)
                 filepath = os.path.join(directory, filename)
                 
                 if not os.path.exists(filepath):
@@ -2387,11 +2393,12 @@ Thank you for choosing UJJIVAN Hospital.
                 print("Starting UJJIVAN Hospital Pathology System")
                 print("="*50)
                 print(f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
-                print(f"Reports directory: {os.path.abspath('reports/completed_reports')}")
+                print(f"Reports directory: {os.path.abspath(self.reports_dir)}")
                 print("Web interface: http://localhost:5000")
                 print(f"WhatsApp integration: {'Enabled' if self.whatsapp_enabled else 'Disabled'}")
                 print("Patient Messaging: Enabled")
                 print("="*50)
+                print(f"Reports directory: {os.path.abspath(self.reports_dir)}")
                 
                 self.flask_app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False, threaded=True)
             except Exception as e:
@@ -2414,21 +2421,10 @@ Thank you for choosing UJJIVAN Hospital.
         messagebox.showinfo("Success", 
             f"Web application opened in browser!\n\n"
             f"If it doesn't load automatically, visit:\n{flask_url}\n\n"
-            f"📁 Reports are saved in:\n{os.path.abspath('reports/completed_reports')}")
+            f"📁 Reports are saved in:\n{os.path.abspath(self.reports_dir)}")
 
 if __name__ == "__main__":
-    app = PathologyTestsForm(enable_gui=True, auto_start_server=True)
-
-    # Handle window close
-    def on_closing():
-        try:
-            app.conn.close()
-        except:
-            pass
-        app.destroy()
-
-    app.protocol("WM_DELETE_WINDOW", on_closing)
-    app.mainloop()
+    app = PathologyTestsForm(enable_gui=False, auto_start_server=False).flask_app
+    app.run(host="0.0.0.0", port=10000, debug=True)
 else:
-    # Render / Gunicorn entrypoint: run Flask routes without desktop GUI.
     app = PathologyTestsForm(enable_gui=False, auto_start_server=False).flask_app
