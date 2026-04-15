@@ -57,6 +57,8 @@ class PathologyTestsForm(TkBase):
             self.configure(bg="#f0e1c6")
         
         # Create necessary directories
+        # NOTE: On Vercel serverless deployments, filesystem writes are ephemeral.
+        # Report files may be created during runtime but will not persist across cold starts.
         os.makedirs('reports/completed_reports', exist_ok=True)
         os.makedirs('reports/temp', exist_ok=True)
         
